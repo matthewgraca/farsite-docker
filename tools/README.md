@@ -1,23 +1,96 @@
 # tools — FARSITE weather/wind data-prep scripts
 
-Two command-line utilities that generate FARSITE weather-stream (`.wxs`) and
-Atmosphere Grid (`.atm`) inputs from public and WindNinja-computed data:
+Three command-line utilities that prep FARSITE/FlamMap inputs from CAL
+FIRE/IRWIN, HRRR, and WindNinja-computed data:
 
 | Script | Input | Output |
 |---|---|---|
+| `calfire_ignition.py` | CAL FIRE perimeter + IRWIN ignition point (network) | `ignition` + `reference_perimeter` shapefiles + `fire.json` |
 | `hrrr_to_wxs.py` | HRRR sfc analysis archive (network) | FARSITE `.wxs` weather stream |
 | `runroot_to_atm.py` | WindNinja run2 wind grids (`_vel.asc`/`_ang.asc`, offline) | FARSITE `.atm` + resampled wind grids |
 
-Run both from the **repo root** (`python tools/<script>.py ...`). Any
+Run all from the **repo root** (`python tools/<script>.py ...`). Any
 relative path defaults or flags resolve against the run CWD; the scripts'
 `--out` defaults are therefore already prefixed with `FireBehaviorModels/`
 so default-omission writes into the app's sample-data tree
 (`FireBehaviorModels/SampleData/Palisades/`).
 
 `runroot_to_atm.py` imports helpers (`die`, `_STAMP_RE`, `parse_utc`,
-`resolve_timezone`) from `hrrr_to_wxs.py`; the two files must stay in the
-same directory. Each script's own docstring is the authority on data
-contracts; `python tools/<script.py> --help` prints the full option list.
+`resolve_timezone`) and `calfire_ignition.py` imports `die` from
+`hrrr_to_wxs.py`; all three files must stay in the same directory. Each
+script's own docstring is the authority on data contracts;
+`python tools/<script.py> --help` prints the full option list.
+
+---
+
+## calfire_ignition.py — CAL FIRE perimeter + IRWIN ignition → FARSITE shapefiles
+
+Pipeline head for FARSITE/FlamMap runs. Resolves a historical California
+fire from the CAL FIRE FRAP "California Fire Perimeters (all)" service,
+then resolves the fire's ignition point of origin by its IRWINID against
+NIFC's public WFIGS mirror of IRWIN, and writes the two FARSITE-accepted
+shapefiles a run needs — the ignition seed and the real reference footprint
+— plus `fire.json`. It does NOT run `hrrr_to_wxs.py` or FlamMap.
+
+For each resolved fire the tool:
+1. harvests FRAP metadata: `ALARM_DATE`/`CONT_DATE`/`GIS_ACRES`/`CAUSE`/
+   `AGENCY`/`UNIT_ID`/`INC_NUM`/`IRWINID` (dates converted to whole-hour
+   UTC instants);
+2. queries WFIGS by `IrwinID` and takes the record's Point geometry as the
+   point of origin (verified ~665 m from CAL FIRE's published ignition on
+   the repo's Palisades case);
+3. writes `ignition.*` (one POINT shape, the `FARSITE_IGNITION_FILE` seed)
+   and `reference_perimeter.*` (the real final footprint as a multipart
+   POLYGON to compare against the simulated perimeter), both with `.prj`
+   WKT, plus `fire.json`;
+4. prints a ready-to-run `hrrr_to_wxs.py` command with `--lat/--lon` pinned
+   to the ignition point and a whole-hour-UTC `--start/--end` taken from the
+   FRAP alarm/containment dates.
+
+```
+python tools/calfire_ignition.py --fire-name <name> [--year YYYY] [options]
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--fire-name` | *(required)* | CAL FIRE fire name; matched case-insensitively. |
+| `--year` | *whole FRAP history* | Restrict to one fire `YEAR_`; omit to search all years. |
+| `--index` | *(none)* | 0-based pick when the name matches >1 record (e.g. several "Ranch" fires in a year); required in that case. |
+| `--lat`, `--lon` | *(IRWIN lookup)* | Manual ignition WGS84 `lat`/`lon`; give both and skip the IRWIN/WFIGS lookup (used for pre-IRWIN fires). |
+| `--crs` | `EPSG:4326` | Output CRS for both shapefiles; any pyproj-accepted input (e.g. `EPSG:32611`). |
+| `--out-dir` | `FireBehaviorModels/SampleData/<year>_<slug>` | Output directory, created if missing. `<slug>` = lowercased fire name with spaces → `-`. |
+
+Examples:
+
+```bash
+# Resolve Palisades 2025 end-to-end (ignition over IRWIN), default output dir
+python tools/calfire_ignition.py --fire-name Palisades --year 2025
+
+# Manual ignition for a pre-IRWIN fire (no FRAP IRWINID), no WFIGS lookup
+python tools/calfire_ignition.py --fire-name Cedar --year 2003 \
+  --lat 32.8686 --lon -116.6775 --out-dir runs/cedar_2003
+
+# Disambiguate a repeated name, UTM output
+python tools/calfire_ignition.py --fire-name Ranch --year 2025 --index 1 \
+  --crs EPSG:32611
+```
+
+Notes:
+- IRWIN data is consumed via NIFC's public WFIGS "Ignitions - Wildland Fire
+  Incident Locations" ArcGIS service, not the credential-gated IRWIN API. The
+  service Point geometry (not the frequently-null `InitialLatitude/
+  InitialLongitude` fields) is the point of origin.
+- Coverage floor for auto-ignition is the IRWIN era (~2019+). Pre-IRWIN fires
+  with a null FRAP `IRWINID` need `--lat/--lon`; the **polygon leg works for
+  the full FRAP history (1878+)** regardless — comparison vs simulation is
+  never blocked, only auto-ignition.
+- FRAP properties are UPPERCASE; WFIGS properties are camelCase (`IrwinID`,
+  `IncidentName`) — never assume case equality.
+- The printed hrrr command's `--start/--end` are whole-hour UTC instants from
+  the alarm/containment dates; `--dem` is a placeholder to fill in (hrrr_to_wxs
+  requires it).
+- Outputs land under the gitignored `FireBehaviorModels/` tree by default, so
+  they stay untracked.
 
 ---
 
