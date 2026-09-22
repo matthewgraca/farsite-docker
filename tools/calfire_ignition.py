@@ -22,11 +22,6 @@ It does NOT run hrrr_to_wxs.py or FlamMap. Pre-IRWIN-era fires whose FRAP record
 has no IRWINID (or that are absent from the public WFIGS mirror) take a manual
 --lat/--lon override instead of a fabricated point.
 
-Dependencies (no new installs; all present in the hrrr-wxs env - see the
-hrrr_to_wxs.py docstring for the recipe): requests, pyshp (import shapefile),
-pyproj - plus the stdlib. `die` is reused from hrrr_to_wxs.py; the two files
-must stay in the same directory.
-
 Field casing note: FRAP properties are UPPERCASE (EARTH OBSERVER legacy); WFIGS
 properties are camelCase (e.g. IrwinID, IncidentName). Never assume case
 equality between the two services.
@@ -42,20 +37,13 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+import requests  
+import shapefile  
+import pyproj  
 
 def die(msg):
     print(f"error: {msg}", file=sys.stderr)
     raise SystemExit(2)
-
-
-import requests  # noqa: E402  (bound after the presence guard; never reached on failure)
-import shapefile  # noqa: E402
-import pyproj  # noqa: E402
-
-try:
-    from hrrr_to_wxs import die  # noqa: F811  (same semantics; shared convention)
-except ImportError:  # hrrr_to_wxs itself unresolvable (numpy/tqdm absent) - keep local
-    pass
 
 # ---------------------------------------------------------------------------
 # services (public ArcGIS REST, both verified queries-accessible over plain HTTP)

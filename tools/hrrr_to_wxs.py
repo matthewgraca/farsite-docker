@@ -5,14 +5,6 @@ Downloads the HRRR sfc analysis for a UTC fire window, samples one representativ
 cell per hour, converts units, and writes a valid FARSITE "Weather Stream File"
 (.wxs) whose rows are labelled on the fire-local STANDARD clock.
 
-Dependencies (documented, not vendored): herbie, xarray, cfgrib, numpy, rasterio,
-pyproj, timezonefinder, tqdm (Phase-A download progress bar), matplotlib (optional;
-only for --plot) - plus zoneinfo from stdlib and the system eccodes library.
-Reference environment recipe:
-
-    conda create -n hrrr-wxs -c conda-forge python=3.12 numpy xarray pandas rasterio pyproj eccodes
-    conda activate hrrr-wxs && python -m pip install herbie cfgrib timezonefinder tqdm
-
 Input contract: --start/--end are UTC instants (%Y-%m-%dT%H:%M with an optional
 trailing Z). They are never re-read as wall time in --row-timezone; that flag only
 converts the UTC instants to the fire-local clock used for the row labels. Site
@@ -239,7 +231,9 @@ def _subset_ok(cf):
         return False
 
 
-def phase_a(utc_hours, cache_dir, threads):
+def fetch_grib(utc_hours, cache_dir, threads):
+    """Parallel downloading of grib files from NOAA's AWS bucket
+    """
     from herbie import FastHerbie
 
     def fname(h):
@@ -430,11 +424,6 @@ def cell_value(ds, var, iy, ix, h, clat, clon, allow_fill=None):
 
 def plot_wxs(wxs_path, out_png):
     """Render .wxs rows as a stacked 6-panel timeseries (meteogram).
-
-    The six variables cannot share one axis (wind direction 0-360, precip
-    ~0-0.5 in, temp ~40-90 F...): a common-y plot flattens most series, and six
-    separate figures would break time alignment. The feasible single-artifact
-    presentation is one figure with vertically stacked panels on one time axis.
     """
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
@@ -608,7 +597,7 @@ def main(argv=None):
     cache_dir = Path(args.cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    phase_a(utc_hours, cache_dir, args.threads)
+    fetch_grib(utc_hours, cache_dir, args.threads)
 
     # ---- Phase B: offline conversion -----------------------------------
     ds0_file = cache_dir / f"hrrr_{utc_hours[0]:%Y%m%d%H}.grib2"
