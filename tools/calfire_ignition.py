@@ -43,34 +43,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# startup guard: the env recipe lives in tools/hrrr_to_wxs.py, not an env file
-# ---------------------------------------------------------------------------
-_ENV_RECIPE = (
-    "conda create -n hrrr-wxs -c conda-forge python=3.12 numpy xarray pandas "
-    "rasterio pyproj eccodes && python -m pip install herbie cfgrib "
-    "timezonefinder tqdm requests pyshp"
-)
-
-
 def die(msg):
     print(f"error: {msg}", file=sys.stderr)
     raise SystemExit(2)
 
-
-def _guard_env():
-    missing = []
-    for name in ("requests", "shapefile", "pyproj"):
-        try:
-            __import__(name)
-        except ImportError:
-            missing.append(name)
-    if missing:
-        die(f"missing {', '.join(missing)}; create env per tools/hrrr_to_wxs.py "
-            f"header: {_ENV_RECIPE}")
-
-
-_guard_env()
 
 import requests  # noqa: E402  (bound after the presence guard; never reached on failure)
 import shapefile  # noqa: E402
