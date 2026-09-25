@@ -1,0 +1,119 @@
+# config.example.toml - single source of truth for a FARSITE/WindNinja run.
+#
+# Copy this file to your own config and adapt. Relative paths resolve against
+# the repo root. All four [*stage*] enable switches default to true; set one to
+# false AND provide its input override to reuse prior outputs (resumability
+# after a partial/network failure, or to drive WindNinja/FARSITE by hand).
+#
+#   python tools/orchestrate.py --config config.example.toml          # run
+#   python tools/orchestrate.py --config config.example.toml --dry-run # plan only
+#
+# This file is a faithful PALISADES 2025 example: it reuses the repo's
+# Palisades LCP (test/data/palisades.tif) and writes its outputs into the
+# existing calfire output dir (FireBehaviorModels/SampleData/2025_palisades),
+# so a dry-run resolves the real ignition CRS/resolution and window.
+
+[fire]
+enable = true                 # false => reuse [fire] fire_json, nothing runs
+name = "Palisades"            # CAL FIRE name (case-insensitive), REQUIRED when enabled
+year = 2025                   # fire YEAR_ filter; REQUIRED (pins the run dir)
+# index = 0                   # optional 0-based disambiguation for repeated names
+# lat = 34.06778              # optional manual ignition WGS84; give BOTH to skip
+# lon = -118.55112            #   the IRWIN/WFIGS lookup
+# crs = "EPSG:32611"          # optional shapefile CRS; default = LCP CRS, so the
+                              #   ignition seed matches FARSITE's landscape
+# fire_json = null            # output fire.json (default <run_dir>/fire.json), or
+                              #   required input path when enable=false
+
+[landscape]
+enable = false                # true => ingest_landscape (LFPS) -> <run>/landscape.tif
+lcp = "test/data/palisades.tif"  # reuse path when enable=false (the repo PALISADES LCP)
+# bbox = "-118.7 33.9 -118.4 34.2"   # 'W S E N' WGS84; mutually exclusive w/ mapzone,
+# mapzone = null                     #   required when enable=true
+# email = "you@example.com"    # LFPS requester email, required when enable=true
+version = 2024                # LANDFIRE release for the annual fuel/canopy bands
+fuel_model = "fbfm40"         # fbfm40 | fbfm13 (band 4 = fuel model)
+resolution = 30               # m; 30 = native LANDFIRE (LFPS only coarsens)
+# dem_out = "…/elev.tif"      # optional single-band elevation GeoTIFF (WindNinja);
+                              #   default <run>/<slug>-dem.tif (band-1 extraction)
+
+[simulation]
+start = "2025-01-07T00:00"    # UTC whole hour greenwich-fixed time e.g. "2025-01-07T00:00"
+end = "2025-01-07T06:00"      # UTC whole hour
+row_timezone = "America/Los_Angeles"  # IANA; null => derived from the ignition point
+lead_days = 3                 # conditioning DAYS of meteorology prepended before start
+                              #   (hrrr downloads+emits them as leading RAWS rows; FARSITE
+                              #   conditions fuels from the pre-start weather stream - the
+                              #   repo sample runs ~3 days lead; FARSITE convention is 3-7).
+burn_periods = [["1 6 1600", "1 6 2059"]]   # FARSITE local-clock burn windows as
+                              #   [start, end] pairs of "M D HHMM". The END is written
+                              #   as an HHMM on the START's day (FARSITE burn periods
+                              #   are per-day 'M D HHMM HHMM'); span a night with one
+                              #   entry per day. Local = fire-local STANDARD clock,
+                              #   same as the .wxs/.atm row stamps.
+
+[windninja]
+enable = true                 # false => reuse existing grids in run_root (no cfg/run)
+command = ""                  # e.g. "wine C:/.../WindNinja_cli.exe" or native
+                              #   "WindNinja_cli". EMPTY => write <run>/windroot/<slug>.cfg
+                              #   and print the manual command; the .atm find stage then
+                              #   pauses the run until WindNinja has produced its outputs
+                              #   (re-run with the same --config to resume).
+# run_root = "…/windroot"      # dir of per-hour _vel.asc/_ang.asc pairs + the
+                              #   .atm + the .cfg; default <run>/windroot
+threads = 4                   # num_threads for the WindNinja CLI
+[windninja.options]           # passthrough of WindNinja cfg keys (full CLI vocabulary)
+initialization_method = "wxModelInitialization"   # REQUIRED
+wx_model_type = "PASTCAST-GCP-HRRR-CONUS-3-KM"    # wx-model source (or forecast_filename)
+forecast_duration = 6         # hours of forecast to fetch (this example's window)
+vegetation = "grass"
+input_wind_height = 10.0
+units_input_wind_height = "ft"
+output_wind_height = 10.0
+units_output_wind_height = "ft"
+diurnal_winds = "true"
+# NOTE: these keys are INJECTED by the orchestrator and ALWAYS WIN over user
+# values here: elevation_file, output_path, time_zone, num_threads,
+# write_ascii_output, write_farsite_atm, mesh_resolution, units_mesh_resolution.
+# mesh_resolution is forced to the LCP cell size so WindNinja's native
+# write_farsite_atm grids land on the LCP grid (FARSITE requires it).
+
+[weather]
+enable = true                 # false => reuse an existing wxs ([weather] wxs required)
+# wxs = null                  # reuse path when enable=false
+# cache_dir = "…/.cache/hrrr"  # default FireBehaviorModels/.cache/hrrr
+threads = 8                   # Phase-A download threads
+elevation_tol_ft = 500        # elevation-match tolerance when sampling the HRRR cell
+
+[farsite]
+enable = true                 # false => neither assembly nor runfarsite
+run = false                   # true => invoke runfarsite (needs [farsite] command);
+                              #   false => assemble the inputs + command files only
+command = ""                  # e.g. "wine C:/.../runfarsite.exe"; empty + run=true => error
+# cwd = null                  # CWD for runfarsite; default repo root (its DLL/PATH needs
+                              #   FireBehaviorModels/bin; see docs/FARSITE-CLI.md)
+barrier = "0"                 # barrier shapefile path, or "0" for none
+# out_base = "…/farsite-out/<slug>"  # FARSITE output base (no extension); default
+                              #   <run>/farsite-out/<slug>
+outputs_type = 2              # 0 = both ASCII+GeoTIFF, 1 = ASCII, 2 = GeoTIFF
+timestep = 60
+distance_res = 30
+perimeter_res = 60
+spot_grid_resolution = 15
+spot_probability = 0.035
+spot_ignition_delay = 0
+minimum_spot_distance = 30
+acceleration_on = 1
+fill_barriers = 0
+foliar_moisture_content = 100.0
+crown_fire_method = "ScottReinhardt"   # Finney | ScottReinhardt
+# optional per-model override: default = derived from LCP band 4 (distinct
+# models + 0), each with the sample tuple "6 7 8 60 90 16"
+#[farsite.fuel_moistures]
+#0   = "6 7 8 60 90 16"
+#122 = "6 7 8 60 90 16"
+
+[output]
+# run_dir = "…/my-run"         # all generated artifacts; default:
+                              #   fire.enable=true  -> FireBehaviorModels/SampleData/<year>_<slug>
+                              #   fire.enable=false -> fire.fire_json's parent

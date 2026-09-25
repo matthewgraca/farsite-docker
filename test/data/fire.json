@@ -1,0 +1,17 @@
+{
+  "agency": "CDF",
+  "alarm_date": "2025-01-07T00:00:00+00:00",
+  "cause": "14",
+  "cont_date": "2025-01-31T00:00:00+00:00",
+  "crs": 4326,
+  "gis_acres": 23448.88,
+  "inc_num": "00000738",
+  "irwin_id": "{A7EA5D21-F882-44B8-BF64-44AB11059DC1}",
+  "lat": 34.0677826402894,
+  "lon": -118.551123339829,
+  "name": "PALISADES",
+  "source": "CAL FIRE FRAP + NIFC WFIGS (IRWIN)",
+  "unit_id": "LDF",
+  "url": "https://services1.arcgis.com/jUJYIo9tSA7EHvfZ/arcgis/rest/services/California_Historic_Fire_Perimeters/FeatureServer/0/query",
+  "year": 2025
+}

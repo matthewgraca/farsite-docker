@@ -8,6 +8,8 @@ FIRE/IRWIN, HRRR, and WindNinja-computed data:
 | `calfire_ignition.py` | CAL FIRE perimeter + IRWIN ignition point (network) | `ignition` + `reference_perimeter` shapefiles + `fire.json` |
 | `hrrr_to_wxs.py` | HRRR sfc analysis archive (network) | FARSITE `.wxs` weather stream |
 | `runroot_to_atm.py` | WindNinja run2 wind grids (`_vel.asc`/`_ang.asc`, offline) | FARSITE `.atm` + resampled wind grids |
+| `ingest_landscape.py` | LANDFIRE Product Service (LFPS) landscape (network) | FARSITE/WindNinja multi-band landscape `.tif` (+ optional elevation DEM) |
+| `orchestrate.py` | one TOML config | chained pipeline: landscape + ignition + WindNinja cfg + `.wxs` + FARSITE inputs/command files + `runfarsite` |
 
 Run all from the **repo root** (`python tools/<script>.py ...`). Any
 relative path defaults or flags resolve against the run CWD; the scripts'
@@ -16,8 +18,9 @@ so default-omission writes into the app's sample-data tree
 (`FireBehaviorModels/SampleData/Palisades/`).
 
 `runroot_to_atm.py` imports helpers (`die`, `_STAMP_RE`, `parse_utc`,
-`resolve_timezone`) and `calfire_ignition.py` imports `die` from
-`hrrr_to_wxs.py`; all three files must stay in the same directory. Each
+`resolve_timezone`), `calfire_ignition.py` imports `die`, and
+`ingest_landscape.py` imports `die` from `hrrr_to_wxs.py`; all five files must
+stay in the same directory. Each
 script's own docstring is the authority on data contracts;
 `python tools/<script.py> --help` prints the full option list.
 
@@ -210,3 +213,174 @@ Notes:
   as the `.wxs` rows / FARSITE burn periods (standard-time runs).
 - FARSITE keeps a wind set in force until a later row supersedes it, so one
   row per detected frame covers the burn window.
+
+---
+
+## ingest_landscape.py — LANDFIRE (LFPS) landscape → FARSITE/WindNinja landscape
+
+Downloads a fire-area landscape (elevation + fuel/canopy layers) as a single
+multi-band raster from LANDFIRE's Product Service (LFPS), an open public REST
+API (no auth token; only an email, an AOI, and a layer list are required), and
+writes it as a FARSITE/WindNinja-ready GeoTIFF. It produces only the landscape
+— it does NOT assemble the FARSITE inputs file, command file, weather, wind
+grids, or run `runfarsite` (`orchestrate.py`, below, chains the whole pipeline
+from one config file).
+
+The default output is an **8-band** stack mirroring the working
+`FireBehaviorModels/SampleData/BlueMountain/BlueMountain.tif` layout:
+band 1 = elevation, 2 = slope, 3 = aspect, **band 4 = fuel model**, 5 = canopy
+cover, 6 = canopy height, 7 = canopy base height, 8 = canopy bulk density.
+FARSITE reads exactly one fuel band positionally (band 4); WindNinja reads
+band 1 (elevation) via `elevation_file`. Layer order is the contract — `--layers`
+is used verbatim in exact band order (never sorted/deduped), because LFPS emits
+output bands in `Layer_List` order.
+
+```
+python tools/ingest_landscape.py --bbox "-118.7 33.9 -118.4 34.2" \
+  --email you@example.com --out /tmp/lf_landscape [--dem-out /tmp/lf_elev.tif]
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--bbox` | *(none)* | WGS84 `W S E N` bbox (mutually exclusive with `--mapzone`); exactly one required. |
+| `--mapzone` | *(none)* | LANDFIRE map-zone number (valid 1–10, 12–80, 98–99); returns the FULL zone extent. |
+| `--email` | *(required)* | LFPS-required requester email (open API, not an auth token). |
+| `--version` | `2024` | Release year for the annually-updated product layers (e.g. `2023`, `2024`, `2025`). |
+| `--fuel-model` | `fbfm40` | Band-4 fuel classification: `fbfm40` (40 Scott & Burgan, default) or `fbfm13` (13 Anderson); case-insensitive. |
+| `--layers` | *derived* | Semicolon-delimited LFPS layer codes, **used verbatim in exact band order**. Omit for the version-derived 8-band stack. |
+| `--output-projection` | `5070` | EPSG WKID; MUST force `5070` (NAD83/Conus Albers) — without it LFPS emits a per-AOI Albers that changes every run. |
+| `--resolution` | `30` | Output resolution in m; 30 = native (omit `Resample_Resolution`). LFPS only coarsens, so `<30` is rejected. |
+| `--out` | `FireBehaviorModels/SampleData/landfire/landscape` | Output base path (no extension); written as `<out>.tif`. |
+| `--dem-out` | *(none)* | Optional single-band int16 elevation GeoTIFF (band-1 extraction) for WindNinja. |
+| `--max-wait` | `900` | Max seconds to poll job status (LFPS runs ~12 s–7 min typical, up to 2 h). |
+| `--poll-interval` | `5` | Seconds between status polls. |
+| `--keep-zip` | *off* | Keep the raw `<JobId>.zip` bundle after extraction (archival only); default deletes it. |
+
+**AOI: bbox vs map zone.** Prefer `--bbox` for fire-scale pulls — it clips to a
+tight area (small, fast LFPS job). `--mapzone` returns the FULL administrative
+zone extent in that zone's native projection (useful for regional/whole-zone
+analyses but region-sized and can exceed LFPS AOI/2-h limits). Both paths force
+`--output-projection` (default 5070), so the CRS is stable either way.
+
+**Annual-version resolution.** Terrain (elevation/slope/aspect) is LANDFIRE's
+static base product (`LF2020_*`); fuels/canopy are updated annually
+(`LF{--version}_*`). Band 4 is always the single fuel band selected by
+`--fuel-model`. An explicit `--layers` bypasses version/fuel derivation entirely
+(used to add a 9th band or pin a specific per-layer year). There is **no silent
+version fallback** — if a requested year's layer 400s with
+`Invalid products: <codes>`, the script prints that verbatim and points the user
+to the products catalog.
+
+### LFPS endpoints
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `https://lfps.usgs.gov/api/job/submit` | POST | Submit a job (Layer_List, Area_of_Interest, Email, Output_Projection). |
+| `https://lfps.usgs.gov/api/job/status?JobId=<id>` | GET | Poll job status; `outputFile` on success. |
+| `https://lfps.usgs.gov/api/job/cancel?JobId=<id>` | GET | Cancel an in-progress job. |
+| `https://lfps.usgs.gov/api/upload/shapefile` | POST | Upload a shapefile AOI. |
+| `https://lfps.usgs.gov/api/healthCheck` | GET | Service health. |
+| `https://lfps.usgs.gov/products` | GET | Client-rendered product/version catalog. |
+| `https://lfps.usgs.gov/docs/api` | — | Swagger API docs. |
+
+### Limitations
+
+- **CONUS/AK/HI only** — LFPS serves no insular areas; bbox ranges lon -188..-66,
+  lat 18..72. A non-covered AOI is surfaced as the LFPS error verbatim.
+- **6-h download retention / up-to-2-h jobs** — a product URL expires ~6 h after
+  completion; a 404 on download is reported with that hint (retry by
+  re-submitting).
+- **Annual-version model** — terrain resolves to static `LF2020_*` and the five
+  fuel/canopy products to `LF{--version}_*`; if LANDFIRE later releases an
+  updated terrain base, only the `_TERRAIN` constant changes. The products
+  catalog is a client-rendered Next.js SPA (not machine-readable), so the script
+  does not scrape it; per-year availability is enforced by LFPS submit's
+  `Invalid products: <codes>` response.
+- **Category semantics not translated** — LFPS returns raw LANDFIRE codes
+  (e.g. FBFM40 fuel-model integers); the script doesn't translate attribute
+  tables into names. FARSITE runs on the codes, which is all it consumes.
+- **`--resolution` 30 = native** — LFPS only coarsens, so finer-than-native
+  (`<30`) is rejected.
+- **FARSITE 9th-band requirement is unverified** — the working BlueMountain LCP
+  is 9 bands (band 9 = FCCS), but LFPS's documented fire-behavior stack is 8.
+  Default is the 8-band stack; if a real run later needs a 9th band, pass it via
+  `--layers` (no code change).
+
+---
+
+## orchestrate.py — FARSITE/WindNinja pipeline from one TOML config
+
+Chains the four scripts above, generates + runs a WindNinja CLI config, and
+assembles + runs the FARSITE inputs/command files from a single human-editable
+TOML file (see `config.example.toml` — a faithful annotated PALISADES example).
+One config is the single source of truth for a run; TOML is parsed with the
+stdlib `tomllib` (Python 3.11+), so there is zero new dependency.
+
+```
+python tools/orchestrate.py --config config.example.toml            # run
+python tools/orchestrate.py --config config.example.toml --dry-run  # plan only
+```
+
+`--dry-run` prints every planned subprocess argv plus the full text of every
+file that would be written (WindNinja cfg, FARSITE inputs + command files),
+and touches nothing on disk. `--config` is required; config errors exit 2.
+
+Sequential stages (each resumable via `enable=false` + its input override after
+a partial/network failure):
+
+1. **landscape** — `ingest_landscape.py --bbox/--mapzone --email --version
+   --fuel-model --resolution --out <run>/landscape [--dem-out]`; the LCP is
+   `<run>/landscape.tif`. `enable=false` reuses `[landscape] lcp`. The
+   single-band WindNinja DEM = `[landscape] dem_out` or an extracted band-1 of
+   the LCP (`<run>/<slug>-dem.tif`, mirroring `ingest_landscape._write_dem`).
+2. **fire** — `calfire_ignition.py --fire-name --year [--index] [--lat/--lon]
+   --crs <LCP CRS> --out-dir <run>`; `fire.json` fields (name/year/alarm/cont/
+   lat/lon) then drive the window, timezone, and HRRR anchor. `enable=false`
+   reuses `[fire] fire_json`.
+3. **window** — UTC burn window from `[simulation] start/end` else the fire.json
+   alarm/containment; the fire-local STANDARD IANA clock comes from
+   `[simulation] row_timezone` or is derived from the ignition point. `lead_days`
+   prepends conditioning days of weather (hrrr emits them as leading RAWS rows;
+   FARSITE conditions fuels from the pre-start stream).
+4. **windninja** — writes `<run>/windroot/<slug>.cfg`: user `[windninja.options]`
+   passthroughs then the injected winning keys (`elevation_file`, `output_path`,
+   `time_zone`, `num_threads`, `write_ascii_output`, `write_farsite_atm`,
+   `mesh_resolution` = the LCP cell size, `units_mesh_resolution = m`). Runs
+   `[windninja] command` if set; empty command prints the exact manual command
+   and the run pauses at stage 5 until WindNinja's `.atm` exists (re-running the
+   same config resumes automatically — existing pairs are reused). `enable=false`
+   reuses an existing run root.
+5. **atm** — locates the single native WindNinja `.atm` under the run root and
+   integrity-checks every referenced grid with `runroot_to_atm.verify_atm`
+   (presence + decodability; nothing is resampled/converted — WindNinja's
+   `write_farsite_atm` + the injected `mesh_resolution` put the grids on the LCP
+   grid already).
+6. **weather** — `hrrr_to_wxs.py --dem <LCP> --lat/--lon <ignition> --start/--end
+   --row-timezone <IANA> --run-root <run_root> --cache-dir ... --lead-days ...
+   --out <run>/<slug>-hrrr.wxs`; the wind-coverage gate governs the burn window
+   (conditioning lead hours need no WindNinja outputs). `enable=false` reuses
+   `[weather] wxs`.
+7. **farsite-assemble** — writes `<run>/<slug>-FarsiteInputs.txt`
+   (fuel-moisture block derived from the LCP band-4 distinct models + 0,
+   sample tuple `6 7 8 60 90 16`, overridable per-model via
+   `[farsite.fuel_moistures]`; burn periods; local start/end; the `.wxs` rows as
+   the `RAWS:` block; `FARSITE_ATM_FILE:` = the native `.atm`) and a single-line
+   `<run>/<slug>-FarsiteCmd.txt` of absolute paths.
+8. **farsite-run** — `runfarsite` when `[farsite] run=true` (requires
+   `[farsite] command`, e.g. `wine C:/.../runfarsite.exe`); `run=false` assembles
+   only, `enable=false` skips even assembly.
+
+Notes:
+- The `.wxs` rows, `.atm` rows, and burn periods are all on the fire-local
+  STANDARD clock (the repo's documented timing contract); FARSITE burn-period
+  entries are per-day `M D HHMM HHMM` — the config's `M D HHMM` end is written
+  as an HHMM on the start's day, so span a night with one entry per day.
+- All paths written into the WindNinja cfg / inputs / command files are absolute,
+  so they stay valid under Wine's `Z:\` mapping on Linux and natively on Windows.
+- The hrrr wind-coverage gate enforces the burn window only; a `.atm` covering
+  more hours than the burn window is harmless (FARSITE keeps a wind set in force
+  until a later row supersedes it).
+- The WindNinja CLI and `runfarsite` binaries are not in this repo (WindNinja is
+  present only as a DLL; `runfarsite.exe` needs Wine + the `bin/` DLL stack, see
+  `../docs/WindNinja-CLI.md` / `../docs/FARSITE-CLI.md`). `orchestrate` drives
+  them entirely through the `command`/`cwd` config fields.
