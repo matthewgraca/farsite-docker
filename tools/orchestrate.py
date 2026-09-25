@@ -22,6 +22,7 @@ nothing on disk. Config errors exit 2 (via die()); success exits 0.
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -81,6 +82,20 @@ _SECTION_KEYS = {
 
 def slugify(name):
     return str(name).lower().replace(" ", "-")
+
+
+def split_command(s):
+    """Split a [windninja]/[farsite] command string into argv tokens.
+
+    posix=False keeps backslashes literal (Windows paths) and groups a
+    double-quoted argument into one token; the enclosing quotes are then
+    dropped so the quoted path becomes a single clean argv element (a path
+    with spaces passed to subprocess as one argument).
+    """
+    return [
+        t[1:-1] if len(t) > 1 and t[0] == t[-1] == '"' else t
+        for t in shlex.split(s, posix=False)
+    ]
 
 
 def respath(v):
@@ -399,7 +414,7 @@ class Runner:
                     "bbox or mapzone")
             email = land.get("email") or die("landscape.enable=true requires "
                                              "[landscape] email (LFPS requester)")
-            argv = ["python", str(TOOL_DIR / "ingest_landscape.py")]
+            argv = [sys.executable, str(TOOL_DIR / "ingest_landscape.py")]
             if bbox is not None:
                 argv += ["--bbox", str(bbox)]
             else:
@@ -440,7 +455,7 @@ class Runner:
         fire = self.cfg["fire"]
         name = "fire"
         if fire["enable"]:
-            argv = ["python", str(TOOL_DIR / "calfire_ignition.py"),
+            argv = [sys.executable, str(TOOL_DIR / "calfire_ignition.py"),
                     "--fire-name", str(fire["name"]),
                     "--year", str(fire["year"])]
             if fire.get("index") is not None:
@@ -560,7 +575,7 @@ class Runner:
                       f"{command} {cfg_path}"
                       f" (pair verification skipped in dry-run)")
                 return
-            self.run_cmd("windninja", [*command.split(), str(cfg_path)])
+            self.run_cmd("windninja", [*split_command(command), str(cfg_path)])
             if not scan_frames(self.wind_root):
                 die(f"no pairs produced under {self.wind_root} after running "
                     f"{command}; run WindNinja manually and re-run")
@@ -609,7 +624,7 @@ class Runner:
         wea = self.cfg["weather"]
         name = "weather"
         if wea["enable"]:
-            argv = ["python", str(TOOL_DIR / "hrrr_to_wxs.py"),
+            argv = [sys.executable, str(TOOL_DIR / "hrrr_to_wxs.py"),
                     "--dem", str(self.lcp),
                     "--start", f"{self.utc_start:%Y-%m-%dT%H:%M}Z",
                     "--end", f"{self.utc_end:%Y-%m-%dT%H:%M}Z",
@@ -734,7 +749,7 @@ class Runner:
             die("farsite.enable=true with farsite.run=true requires [farsite] "
                 "command (e.g. wine C:/.../runfarsite.exe)")
         cwd = respath(far["cwd"]) if far.get("cwd") else REPO_ROOT
-        self.run_cmd("farsite-run", [*command.split(), str(cmd_path)], cwd=cwd)
+        self.run_cmd("farsite-run", [*split_command(command), str(cmd_path)], cwd=cwd)
         print(f"farsite done; outputs base: {self.out_base.resolve()}")
 
     # ---------------------------------------------------------------- run ---

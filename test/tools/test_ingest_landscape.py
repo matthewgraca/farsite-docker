@@ -245,6 +245,37 @@ def test_main_default_resolution_30_is_accepted(tmp_path, monkeypatch, capsys):
     assert out_base.with_suffix(".tif").is_file()
 
 
+def test_main_overwrites_existing_output(tmp_path, monkeypatch, capsys):
+    # Re-running ingest over a prior <out>.tif is an advertised resume path.
+    # Path.rename raises FileExistsError on Windows when the target exists, so
+    # the extract must be moved with os.replace semantics (Path.replace).
+    fixture = tmp_path / "fixture.tif"
+    make_fixture_tif(fixture, nbands=3)
+    job_id = "test-job"
+    zip_bytes = make_bundle_zip(tmp_path / "bundle.zip", job_id, fixture)
+    install_fake_net(
+        monkeypatch,
+        submit_resp=FakeResp(status_code=200, json_data={"jobId": job_id}),
+        status_resps=[FakeResp(status_code=200, json_data={
+            "status": "Succeeded",
+            "outputFile": "http://lfps/out/test-job.zip"})],
+        zip_bytes=zip_bytes,
+    )
+    out_base = tmp_path / "landscape"
+    layers = "LF2020_Elev;LF2020_SlpD;LF2020_Asp"
+    make_fixture_tif(out_base.with_suffix(".tif"), nbands=1)   # pre-existing stub
+    rc = ing.main([
+        "--bbox", VALID_BBOX, "--email", "a@b.c",
+        "--layers", layers,
+        "--out", str(out_base), "--max-wait", "20",
+    ])
+    assert rc == 0
+    # the pipeline output replaced the stub (3-band finalize, not 1-band stub)
+    import rasterio
+    with rasterio.open(out_base.with_suffix(".tif")) as ds:
+        assert ds.count == 3
+
+
 # ---------------------------------------------------------------------------
 # invalid-products robustness: no silent version fallback
 # ---------------------------------------------------------------------------

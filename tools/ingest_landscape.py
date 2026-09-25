@@ -421,7 +421,7 @@ def main(argv=None):
     # and drop the temp extract dir, leaving the single <out>.tif as the
     # deliverable (the GUID .tfw/.aux.xml sidecars are removed with it).
     try:
-        extracted.rename(final_tif)
+        extracted.replace(final_tif)
     finally:
         shutil.rmtree(extract_dir, ignore_errors=True)
 

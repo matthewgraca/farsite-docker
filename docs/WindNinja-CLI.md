@@ -38,10 +38,13 @@ option documented below applies to both). Ways to get a CLI:
 - In this repo the engine is also driven **embedded inside `runfarsite`** (FARSITE's `GRIDDED_WINDS_GENERATE`), see [§6](#6-embedded-use-from-farsite) and `FARSITE-CLI.md`.
 - Python wrapper used by some pipelines: `gagreene/WindNinja`.
 
+On native Windows, `orchestrate` invokes the official `WindNinja_cli.exe`
+directly via `[windninja] command` (e.g. `"C:\\...\\WindNinja_cli.exe"`, quoted
+if the path has spaces); the `.cfg` it writes uses absolute native `C:\...`
+paths and CRLF line endings — exactly what the CLI reads.
+
 > Version check on any build: `WindNinja_cli --version` prints the version,
 > SCM, and release date. The DLL here reports `3.11.0`.
-
----
 
 ## 2. Environment & library requirements
 
@@ -63,7 +66,9 @@ On Windows, `FireBehaviorModels/SetEnv.bat` sets all four. Outside Windows the
 CLI must run under a runtime that loads the DLLs (e.g. Wine on Linux) or use a
 native Linux WindNinja build that bundles the same data files. Set
 `WINDNINJA_DATA`/`GDAL_DATA`/`PROJ_LIB` explicitly when scripting; do **not**
-rely on a shell profile.
+rely on a shell profile. On native Windows run `SetEnv.bat` in the **same
+terminal** that launches `orchestrate.py` — its `WindNinja_cli` subprocess
+inherits the variables.
 
 Input data requirements:
 

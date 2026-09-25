@@ -11,11 +11,12 @@ FIRE/IRWIN, HRRR, and WindNinja-computed data:
 | `ingest_landscape.py` | LANDFIRE Product Service (LFPS) landscape (network) | FARSITE/WindNinja multi-band landscape `.tif` (+ optional elevation DEM) |
 | `orchestrate.py` | one TOML config | chained pipeline: landscape + ignition + WindNinja cfg + `.wxs` + FARSITE inputs/command files + `runfarsite` |
 
-Run all from the **repo root** (`python tools/<script>.py ...`). Any
+Run all from the **repo root** (`python tools/<script.py> ...`). Any
 relative path defaults or flags resolve against the run CWD; the scripts'
 `--out` defaults are therefore already prefixed with `FireBehaviorModels/`
 so default-omission writes into the app's sample-data tree
-(`FireBehaviorModels/SampleData/Palisades/`).
+(`FireBehaviorModels/SampleData/Palisades/`). All five run natively on
+Windows too (Python ≥ 3.11); see `WINDOWS.md` at the repo root.
 
 `runroot_to_atm.py` imports helpers (`die`, `_STAMP_RE`, `parse_utc`,
 `resolve_timezone`), `calfire_ignition.py` imports `die`, and
@@ -375,12 +376,15 @@ Notes:
   STANDARD clock (the repo's documented timing contract); FARSITE burn-period
   entries are per-day `M D HHMM HHMM` — the config's `M D HHMM` end is written
   as an HHMM on the start's day, so span a night with one entry per day.
-- All paths written into the WindNinja cfg / inputs / command files are absolute,
-  so they stay valid under Wine's `Z:\` mapping on Linux and natively on Windows.
+- All paths written into the WindNinja cfg / inputs / command files are absolute
+  (`Path.resolve()`), so they are native `C:\...` paths on Windows and
+  `Z:\`-style under Wine on Linux.
 - The hrrr wind-coverage gate enforces the burn window only; a `.atm` covering
   more hours than the burn window is harmless (FARSITE keeps a wind set in force
   until a later row supersedes it).
 - The WindNinja CLI and `runfarsite` binaries are not in this repo (WindNinja is
-  present only as a DLL; `runfarsite.exe` needs Wine + the `bin/` DLL stack, see
-  `../docs/WindNinja-CLI.md` / `../docs/FARSITE-CLI.md`). `orchestrate` drives
-  them entirely through the `command`/`cwd` config fields.
+  present only as a DLL; `runfarsite.exe` lives under the gitignored
+  `FireBehaviorModels/bin/`; on Linux/WSL they need Wine + the `bin/` DLL stack,
+  see `../docs/WindNinja-CLI.md` / `../docs/FARSITE-CLI.md`). `orchestrate`
+  drives them entirely through the `command`/`cwd` config fields, on Linux/Wine
+  and native Windows alike (see `../WINDOWS.md`).

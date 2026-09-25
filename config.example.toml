@@ -54,8 +54,10 @@ burn_periods = [["1 6 1600", "1 6 2059"]]   # FARSITE local-clock burn windows a
 
 [windninja]
 enable = true                 # false => reuse existing grids in run_root (no cfg/run)
-command = ""                  # e.g. "wine C:/.../WindNinja_cli.exe" or native
-                              #   "WindNinja_cli". EMPTY => write <run>/windroot/<slug>.cfg
+command = ""                  # e.g. "wine C:/.../WindNinja_cli.exe" (Linux/WSL) or native
+                              #   Windows "C:\\...\\WindNinja_cli.exe"; a path with spaces
+                              #   must be double-quoted (quotes honored, backslashes literal).
+                              #   EMPTY => write <run>/windroot/<slug>.cfg
                               #   and print the manual command; the .atm find stage then
                               #   pauses the run until WindNinja has produced its outputs
                               #   (re-run with the same --config to resume).
@@ -89,7 +91,10 @@ elevation_tol_ft = 500        # elevation-match tolerance when sampling the HRRR
 enable = true                 # false => neither assembly nor runfarsite
 run = false                   # true => invoke runfarsite (needs [farsite] command);
                               #   false => assemble the inputs + command files only
-command = ""                  # e.g. "wine C:/.../runfarsite.exe"; empty + run=true => error
+command = ""                  # e.g. "wine C:/.../runfarsite.exe" (Linux/WSL) or native
+                              #   Windows "C:\\...\\FireBehaviorModels\\bin\\runfarsite.exe";
+                              #   a path with spaces must be double-quoted (quotes honored,
+                              #   backslashes literal). empty + run=true => error
 # cwd = null                  # CWD for runfarsite; default repo root (its DLL/PATH needs
                               #   FireBehaviorModels/bin; see docs/FARSITE-CLI.md)
 barrier = "0"                 # barrier shapefile path, or "0" for none

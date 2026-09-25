@@ -81,6 +81,13 @@ Run with `SampleData/Farsite/TestFarsite.bat`, which simply executes
 (`Loading lcp file for Farsite #0: …`, `Launching Farsite #0`, …), including
 `Farsite #0 edge of landscape hits: N` when the fire exits the landscape.
 
+**Native Windows:** invoke `runfarsite.exe` from a shell (cmd/PowerShell) that
+has `FireBehaviorModels/bin` on PATH plus `GDAL_DATA`/`PROJ_LIB` set — run
+`FireBehaviorModels\SetEnv.bat` in that terminal first. `orchestrate` writes the
+command file with absolute native `C:\...` paths and CRLF line endings, so
+`[farsite] command = "C:\\...\\FireBehaviorModels\\bin\\runfarsite.exe"` (quoted
+if the path has spaces) invokes it directly.
+
 > Note: the sample uses `FarsiteRunLog.txt` as the inputs file. That file is a
 > run-log echo that also happens to be a valid inputs file: its log lines start
 > with `#` and are therefore treated as comments. A purpose-built inputs file
@@ -296,6 +303,11 @@ Verified artifacts match exactly this shape: the real sample **is** this layout
 `FarsiteRunLog.txt` inputs file with 22 fuel-moisture entries, `RAWS: 218` rows,
 burn periods, `GRIDDED_WINDS_GENERATE: Yes` + `GRIDDED_WINDS_RESOLUTION: 30` +
 `GRIDDED_WINDS_DIURNAL: Yes`).
+
+> On native Windows the same command file works when its paths are absolute
+> native `C:\...` paths (what `orchestrate` writes) instead of the relative
+> `..\BlueMountain\...` / `.\out\test` forms above; CRLF line endings are what
+> FARSITE expects and what this repo writes everywhere.
 
 ---
 

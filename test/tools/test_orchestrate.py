@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrate import main
+from orchestrate import main, split_command
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 
@@ -277,6 +277,16 @@ def test_ambiguous_multiple_atm_dies_at_stage7(tmp_path, capsys):
     with pytest.raises(SystemExit):
         main(["--config", str(cfg)])
     assert "ambiguous: multiple .atm under" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# [windninja]/[farsite] command splitting (Windows quoting)
+# ---------------------------------------------------------------------------
+def test_split_command_handles_windows_paths():
+    assert split_command("wine C:/x/runfarsite.exe") == ["wine", "C:/x/runfarsite.exe"]
+    assert split_command(r'"C:\Program Files\WindNinja\WindNinja_cli.exe"') \
+        == [r"C:\Program Files\WindNinja\WindNinja_cli.exe"]
+    assert split_command(r"C:\repo\runfarsite.exe") == [r"C:\repo\runfarsite.exe"]
 
 
 # ---------------------------------------------------------------------------

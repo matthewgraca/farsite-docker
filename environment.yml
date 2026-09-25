@@ -1,3 +1,4 @@
+# Linux-locked export; does not solve on win-64.  Windows setup: see WINDOWS.md (repo root).
 name: flammap
 channels:
   - conda-forge
