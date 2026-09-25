@@ -1,7 +1,8 @@
 # tools — FARSITE weather/wind data-prep scripts
 
-Three command-line utilities that prep FARSITE/FlamMap inputs from CAL
-FIRE/IRWIN, HRRR, and WindNinja-computed data:
+Six command-line utilities that prep FARSITE/FlamMap inputs from CAL
+FIRE/IRWIN, HRRR, and WindNinja-computed data (and compare the simulated
+perimeter against the real one):
 
 | Script | Input | Output |
 |---|---|---|
@@ -10,17 +11,19 @@ FIRE/IRWIN, HRRR, and WindNinja-computed data:
 | `runroot_to_atm.py` | WindNinja run2 wind grids (`_vel.asc`/`_ang.asc`, offline) | FARSITE `.atm` + resampled wind grids |
 | `ingest_landscape.py` | LANDFIRE Product Service (LFPS) landscape (network) | FARSITE/WindNinja multi-band landscape `.tif` (+ optional elevation DEM) |
 | `orchestrate.py` | one TOML config | chained pipeline: landscape + ignition + WindNinja cfg + `.wxs` + FARSITE inputs/command files + `runfarsite` |
+| `compare_perimeter.py` | run-dir or reference+simulated shapefiles | IoU + overlay PNG (+future metrics) |
 
 Run all from the **repo root** (`python tools/<script.py> ...`). Any
 relative path defaults or flags resolve against the run CWD; the scripts'
 `--out` defaults are therefore already prefixed with `FireBehaviorModels/`
 so default-omission writes into the app's sample-data tree
-(`FireBehaviorModels/SampleData/Palisades/`). All five run natively on
+(`FireBehaviorModels/SampleData/Palisades/`). All six run natively on
 Windows too (Python ≥ 3.11); see `WINDOWS.md` at the repo root.
 
 `runroot_to_atm.py` imports helpers (`die`, `_STAMP_RE`, `parse_utc`,
 `resolve_timezone`), `calfire_ignition.py` imports `die`, and
-`ingest_landscape.py` imports `die` from `hrrr_to_wxs.py`; all five files must
+`ingest_landscape.py` (plus `compare_perimeter.py`) imports `die` from
+`hrrr_to_wxs.py`; all six files must
 stay in the same directory. Each
 script's own docstring is the authority on data contracts;
 `python tools/<script.py> --help` prints the full option list.
@@ -388,3 +391,50 @@ Notes:
   see `../docs/WindNinja-CLI.md` / `../docs/FARSITE-CLI.md`). `orchestrate`
   drives them entirely through the `command`/`cwd` config fields, on Linux/Wine
   and native Windows alike (see `../WINDOWS.md`).
+
+---
+
+## compare_perimeter.py — CalFire vs FARSITE perimeter IoU + overlay
+
+Consumes pipeline *output* (no stage of `orchestrate.py` is rewired): overlaps
+the real CalFire final footprint `<run>/reference_perimeter.shp` (written by
+`calfire_ignition.py`) against FARSITE's simulated perimeters and reports the
+IoU (intersection-over-union) plus an overlay PNG. New metrics/visualizations
+can slot in later via the `METRICS` registry and `plot_overlay()`; this version
+ships IoU + the overlay only.
+
+```
+python tools/compare_perimeter.py --run-dir <run> [--metric iou]
+                                  [--plot overlay.png] [--json result.json]
+                                  [--basemap auto|imagery|osm|none]
+python tools/compare_perimeter.py --reference <ref.shp> --simulated <sim.shp>
+                                  [same options]
+```
+
+Exactly one source group is required: `--run-dir` (reference + fire.json +
+`farsite-out/<slug>_Perimeters.shp` all derive from it; the slug is the
+lower-cased fire name with spaces → `-`), or explicit `--reference` +
+`--simulated`. `--metric` is a comma-list (valid: `iou`); `--json` dumps the
+machine-readable `compare()` dict; `--plot` writes the overlay PNG.
+
+**Final-perimeter selection.** FARSITE's `_Perimeters.shp` holds one record per
+growth timestep; the final footprint is the record(s) with the max elapsed
+field (`Elapsed_Mi`/`Elapsed_Minutes`/`*elapsed*`, else any `time`/`simtime`
+field). With no such field all records are kept — growth is monotonic, so
+union-all equals the final state (the printed `elapsed_field` reports which
+path ran).
+
+**Metric CRS.** Areas are computed in the simulated shapefile's own CRS (the
+reference is reprojected into it) — FARSITE's landscape CRS, e.g. EPSG:32611
+for Palisades. A geographic sim CRS falls back to a UTM zone derived from the
+simulated footprint's centroid (`32611` = UTM 11N, etc.). IoU is planar; in
+the ≤50 km extents this repo targets, the error vs geodesic is negligible.
+
+**Basemap.** Esri World Imagery (satellite) is the default — the real burned
+area stays visible under the simulated footprint, no API key needed. The chain
+runs `imagery → osm → none`: any provider failure (HTTP, decode, offline)
+falls through, and a fully offline host still gets the plain projected frame
+with labeled axes. `--basemap none` skips tiles entirely; `--basemap imagery` /
+`--basemap osm` pin one provider. Tiles are fetched directly with `requests`
+and mosaicked with numpy/Pillow (no new dependency), mirroring how
+`calfire_ignition.py` talks to public services.
