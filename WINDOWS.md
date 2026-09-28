@@ -18,7 +18,7 @@ Create the env with the recipe below instead.
 win-64, conda-forge (default channel):
 
 ```bat
-conda create -n flammap -c conda-forge python=3.12 rasterio numpy xarray cfgrib eccodes herbie-data pyshp pyproj requests timezonefinder tzdata pandas scipy matplotlib pytest
+conda create -n flammap -c conda-forge python=3.12 rasterio numpy xarray cfgrib eccodes herbie-data pyshp pyproj requests timezonefinder tzdata pandas scipy matplotlib pytest tqdm
 ```
 
 - `python=3.12` — the boring LTS pick.

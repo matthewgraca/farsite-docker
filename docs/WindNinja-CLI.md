@@ -5,8 +5,12 @@ specified height above ground) from coarse weather-model or point/domain inputs.
 This guide covers the **command-line interface** (CLI) and associated
 environment/library requirements. It was built from:
 
-- `FireBehaviorModels/bin/WindNinjadll.dll` — the WindNinja 3.11.0 engine
-  shipped in this repository (version/release string/SCM from DLL strings).
+- The official WindNinja **4.0** CLI (`WindNinja_cli.exe`) from the WindNinja
+  distribution — this guide documents that binary's option vocabulary.
+- The `WindNinja 3.11.0` engine DLL shipped in this repository
+  (`FireBehaviorModels/bin/WindNinjadll.dll`) — used only **embedded inside
+  `runfarsite`** (FARSITE's `GRIDDED_WINDS_GENERATE`); it is not the CLI the
+  orchestrator drives.
 - The official WindNinja CLI instructions
   (`doc/CLI_instructions.pdf` in the windninja project).
 - In-repo workflows that consume WindNinja output:
@@ -24,18 +28,19 @@ In **this** repository WindNinja is present **only as a shared library**:
 
 | Artifact | Location | Purpose |
 |---|---|---|
-| `WindNinjadll.dll` | `FireBehaviorModels/bin/` | WindNinja 3.11.0 engine (2026/06/25 build, SCM `fd9c3e50…`) |
+| `WindNinja_cli.exe` | official WindNinja 4.0 install (not in repo), e.g. `C:\WindNinja\WindNinja-4.0.0\bin\` | the CLI `orchestrate` drives via `[windninja] command` |
+| `WindNinjadll.dll` | `FireBehaviorModels/bin/` | WindNinja 3.11.0 engine DLL (2026/06/25 build, SCM `fd9c3e50…`) — used only **embedded** inside `runfarsite` (`GRIDDED_WINDS_GENERATE`), not by the CLI |
 | `date_time_zonespec.csv`, `tz_world.zip` | `FireBehaviorModels/bin/share/windninja-data/` | time-zone database WindNinja reads at startup |
 | generated run | `FireBehaviorModels/run2/NINJAFOAM_palisades_15640_268/` | an OpenFOAM("NINJAFOAM") momentum-solver case WindNinja wrote (12-proc decompose, `simpleFoam`, `sample` → `postProcessing/surfaces`) |
 | HRRR input tile | `FireBehaviorModels/run2/PASTCAST-GCP-HRRR-CONUS-3-KM-palisades/` | a packaged HRRR "pastcast" (from the GCP archive): zip of per-hour 3-km GeoTIFFs, 4 bands each (surface temp, U, V, cloud cover) — the field set WindNinja's HRRR downloader uses; a local wx-model forecast input to WindNinja |
 
-The **standalone CLI executable** — `WindNinja_cli` (`WindNinja_cli.exe` on
-Windows) — is **not** in this repo; it ships in the official WindNinja
-distribution (same engine/option vocabulary as `WindNinja.dll` here, so every
-option documented below applies to both). Ways to get a CLI:
+The **standalone CLI executable** — `WindNinja_cli.exe` (Windows) — is **not**
+in this repo; it ships in the official WindNinja distribution. The option
+vocabulary documented below is **WindNinja 4.0** (the current CLI); check any
+build with its own `--help` (a bare run dumps the option table). Ways to get a CLI:
 
 - Official WindNinja installer/binaries: https://firelab.github.io/windninja/ (Windows: `bin/WindNinja_cli.exe`; Linux: build or binary release).
-- In this repo the engine is also driven **embedded inside `runfarsite`** (FARSITE's `GRIDDED_WINDS_GENERATE`), see [§6](#6-embedded-use-from-farsite) and `FARSITE-CLI.md`.
+- The repo's `FireBehaviorModels/bin/WindNinjadll.dll` (3.11.0) is a **different, older** engine — it is only driven **embedded inside `runfarsite`** (FARSITE's `GRIDDED_WINDS_GENERATE`), see [§6](#6-embedded-use-from-farsite) and `FARSITE-CLI.md`. It is not a CLI and does not share 4.0's option table.
 - Python wrapper used by some pipelines: `gagreene/WindNinja`.
 
 On native Windows, `orchestrate` invokes the official `WindNinja_cli.exe`
@@ -43,32 +48,43 @@ directly via `[windninja] command` (e.g. `"C:\\...\\WindNinja_cli.exe"`, quoted
 if the path has spaces); the `.cfg` it writes uses absolute native `C:\...`
 paths and CRLF line endings — exactly what the CLI reads.
 
-> Version check on any build: `WindNinja_cli --version` prints the version,
-> SCM, and release date. The DLL here reports `3.11.0`.
+> Version check on the CLI: `WindNinja_cli --version` prints the version, SCM,
+> and release date. The orchestrator's `[windninja] command` should target the
+> **4.0** CLI you install; the repo's embedded `WindNinjadll.dll` reports
+> `3.11.0` (used only by FARSITE's `GRIDDED_WINDS_GENERATE`).
 
 ## 2. Environment & library requirements
 
-The CLI loads the full DLL family in its `bin` directory. For this repo's DLL:
+The standalone CLI (`WindNinja_cli.exe`) loads its own runtime DLL family from
+the `bin` directory of its install (GDAL/proj stack, `libcurl.dll` for
+model/elevation downloads, `boost_*` for option parsing, MSVC runtime, …); it
+does **not** load the repo's `FireBehaviorModels/bin` DLLs — those belong to
+the 3.11 engine embedded in `runfarsite`.
 
-- **All 75 sibling DLLs** in `FireBehaviorModels/bin/` must be resolvable at
-  runtime — at minimum the GDAL stack (`gdal.dll`, `geos.dll`, `proj_9.dll`,
-  `geotiff.dll`, `tiff.dll`), `libcurl.dll` (model/elevation downloads),
-  `boost_*` (option parsing), plus the runtime
-  (`concrt140.dll`/`vcruntime`, `icu`, `sqlite3`, `hdf5`, `libpng`, `zlib`, …).
-- **PATH** must include `FireBehaviorModels/bin`.
-- **`WINDNINJA_DATA`** must point at `FireBehaviorModels/bin/share/windninja-data`.
-  If this is unset WindNinja fails: `Could not initialize WindNinja, try setting
-  WINDNINJA_DATA`.
-- **`GDAL_DATA`** → `FireBehaviorModels/bin/share/gdal-data`.
-- **`PROJ_LIB`** → `FireBehaviorModels/bin/share/proj`.
+WindNinja's GDAL/proj/timezone data can come from either the CLI's own `share`
+dirs or the repo's; both are the same plain data files. If you point them at
+the repo's:
 
-On Windows, `FireBehaviorModels/SetEnv.bat` sets all four. Outside Windows the
-CLI must run under a runtime that loads the DLLs (e.g. Wine on Linux) or use a
-native Linux WindNinja build that bundles the same data files. Set
+- **`WINDNINJA_DATA`** must be set to `FireBehaviorModels/bin/share/windninja-data`
+  (or the CLI's own equivalent). If it is unset WindNinja fails:
+  `Could not initialize WindNinja, try setting WINDNINJA_DATA`.
+- **`GDAL_DATA`** → `FireBehaviorModels/bin/share/gdal-data` (or the CLI's own).
+- **`PROJ_LIB`** → `FireBehaviorModels/bin/share/proj` (or the CLI's own).
+
+On Windows, `FireBehaviorModels/SetEnv.bat` sets PATH plus `GDAL_DATA`/
+`PROJ_LIB`/`WINDNINJA_DATA` for `runfarsite`. The standalone CLI needs **only**
+the three data variables — it resolves its own DLLs from its install directory,
+so `FireBehaviorModels/bin` does **not** need to be on PATH. Avoid adding a
+second `gdal.dll`/`proj_9.dll` to PATH when the Python pipeline runs in the same
+shell: a foreign GDAL earlier in the search order makes `rasterio` fail with
+`DLL load failed … specified procedure could not be found` (the conda-vs-OSGeo
+case the Windows recipe documents). Outside Windows the CLI must run under a
+runtime that loads the DLLs (e.g. Wine on Linux) or use a native Linux
+WindNinja build that bundles the same data files. Set
 `WINDNINJA_DATA`/`GDAL_DATA`/`PROJ_LIB` explicitly when scripting; do **not**
-rely on a shell profile. On native Windows run `SetEnv.bat` in the **same
+rely on a shell profile. On native Windows set the data variables in the **same
 terminal** that launches `orchestrate.py` — its `WindNinja_cli` subprocess
-inherits the variables.
+inherits them.
 
 Input data requirements:
 
@@ -144,7 +160,7 @@ the DLL): `domainAverageInitialization`, `pointInitialization`,
 |---|---|---|
 | `domainAverageInitialization` | `input_speed`, `input_direction`, `input_wind_height`, `units_input_wind_height` (+ diurnal: `month`/`day`/`hour`/`minute`, `uni_air_temp`, `uni_cloud_cover`) | one uniform wind everywhere, terrain-modulated |
 | `pointInitialization` | weather stations: `fetch_station=true`, `fetch_type=bbox`/`stid`, `wx_station_filename`, or point-ini table (station list w/ radius of influence); `number_time_steps`, start/stop `*_year/_month/_day/_hour/_minute` | mesonet observations interpolated across the domain |
-| `wxModelInitialization` | `wx_model_type`, `time_zone`, start/stop times, `forecast_duration` (or `forecast_filename` / `forecast_time`) | drive with NWS model output |
+| `wxModelInitialization` | `wx_model_type`, `time_zone`, plus the window as **start/stop times** for `PASTCAST-*`, or `forecast_duration` for live NWS forecast types (or `forecast_filename` / `forecast_time`) | drive with NWS model output (live forecast or archived HRRR pastcast) |
 | `griddedInitialization` | `input_speed_grid` + `input_dir_grid` (ASCII grids), start/stop times | pre-computed wind rasters, e.g. a coarse run resampled into a fine mesh |
 
 Common required-ish options across methods:
@@ -180,22 +196,48 @@ missing options and prints a diagnostic instead of running; no run proceeds
 until the option set is consistent. When scripting, treat the error stream as
 contract, not text to parse for output.
 
+### 4.1 Archived-HRRR (PASTCAST) runs — `wxModelInitialization`
+
+`wx_model_type = PASTCAST-GCP-HRRR-CONUS-3-KM` initializes from the **archived**
+HRRR CONUS 3-km pastcast, downloaded over HTTPS from
+`storage.googleapis.com/high-resolution-rapid-refresh/…` (no per-run ticket).
+WindNinja **4.0 rejects `forecast_duration` for a PASTCAST model** (`Conflicting
+options 'wx_model_type' and 'forecast_duration'`) — give the historical window
+as whole-hour `start_year…stop_minute` on the `time_zone` clock instead (the
+orchestrator injects `time_zone` but not the window, so the window is a
+`[windninja.options]` passthrough):
+
+```
+start_year  = 2025   start_month = 1   start_day = 6
+start_hour  = 16     start_minute = 0
+stop_year   = 2025   stop_month  = 1   stop_day  = 6
+stop_hour   = 22     stop_minute = 0
+```
+
+Every run also pings `ninjastorm.firelab.org` at start-up for a version/message
+check. If that host doesn't resolve you'll see
+`ERROR 1: Could not resolve host: ninjastorm.firelab.org` — **harmless**: it's a
+non-fatal server check (the code logs it and continues) and is unrelated to the
+pastcast data download above.
+
+When `write_farsite_atm = true`, the `.atm` writer only accepts two
+output-settings combos and **aborts otherwise**: `output_wind_height = 20`
+(+ `units_output_wind_height = ft`) with `output_speed_units = mph`, or
+`output_wind_height = 10 m` with `output_speed_units = kph`. The repo's runs use
+the English combo to match the `.wxs`/FARSITE inputs.
+
 ---
 
-## 5. Full option reference (from the DLL's option table)
+## 5. Full option reference (WindNinja 4.0.0 CLI)
 
-> **Version skew.** The option names below reflect the **3.11.0** DLL shipped in
-> this repo (`FireBehaviorModels/bin/WindNinjadll.dll`). The current
-> `windninja/` source tree (v3.13 / 4.0-dev) renamed the two ASCII sub-options:
-> `ascii_out_utm` → `ascii_out_proj` and `ascii_out_4326` → `ascii_out_geog`
-> (rename landed 2025-07-31, after v3.12). It also adds options absent from the
-> 3.11 DLL: `write_geotiff_output`/`write_wx_model_geotiff_output` (+
-> `geotiff_out_resolution`/`units_geotiff_out_resolution`),
-> `goog_out_speed_interval_scaling`, `goog_out_use_consistent_color_scale`, and
-> (build-dependent) `compute_friction_velocity`/`friction_velocity_calculation_method`,
-> `compute_emissions`/`fire_perimeter_file`, and the NINJAFOAM momentum set
-> `existing_case_directory`/`momentum_flag`/`number_of_iterations`/`mesh_count`/
-> `turbulence_output_flag`. Check a build's exact set with its own `--help`.
+> The table below reflects the **WindNinja 4.0.0** CLI option table. Options
+> gated behind build flags — `compute_friction_velocity`/
+> `friction_velocity_calculation_method`, `compute_emissions`/
+> `fire_perimeter_file`, and the NINJAFOAM momentum set
+> (`existing_case_directory`/`momentum_flag`/`number_of_iterations`/`mesh_count`/
+> `turbulence_output_flag`) — only appear on builds compiled with those
+> features. Check a build's exact set with its own `--help` (a bare run dumps
+> the option table).
 
 Descriptions are WindNinja's own help text; option names are the config-file /
 CLI keys verbatim.
@@ -203,7 +245,7 @@ CLI keys verbatim.
 ### Generic (meta) options
 | Option | Meaning |
 |---|---|
-| `version` | print version (`3.11.0`, SCM, release date) |
+| `version` | print version (`4.0.0`, SCM, release date) |
 | `config_file` | config file path (a bare filename argument also works) |
 | `response_file` | response file; also usable as `@name` |
 | `citation` | print the required citation |
@@ -221,8 +263,8 @@ CLI keys verbatim.
 | `elevation_source` | source for elevation download (e.g. `srtm`) |
 | `initialization_method` | one of the four methods in §4 |
 | `time_zone` | IANA name or `auto-detect` |
-| `wx_model_type` | NWS model (see §4 list) |
-| `forecast_duration` | hours of forecast to download |
+| `wx_model_type` | NWS model (see §4 list); `PASTCAST-GCP-HRRR-CONUS-3-KM` selects the archived HRRR pastcast |
+| `forecast_duration` | hours of forecast to download — **live forecast types only**; WindNinja 4.0 rejects it together with a `PASTCAST-*` model |
 | `forecast_filename` | already-downloaded forecast file (GRIB2/NC) |
 | `forecast_time` | specific UTC run time, format `20200131T180000`; repeatable |
 | `match_points` | match simulation to points (true/false) |
@@ -232,7 +274,7 @@ CLI keys verbatim.
 | `input_speed_grid`, `input_dir_grid` | ASCII rasters for `griddedInitialization` |
 | `uni_air_temp`, `air_temp_units` | surface air temp and units (`K,C,R,F`) |
 | `uni_cloud_cover`, `cloud_cover_units` | cloud cover and units (`fraction/percent/canopy_category`) |
-| `start_year…start_minute`, `stop_year…stop_minute` | simulation window |
+| `start_year…start_minute`, `stop_year…stop_minute` | simulation window; **required (instead of `forecast_duration`) for `PASTCAST-*` models** — whole hours on the `time_zone` clock |
 | `number_time_steps` | point-init timestep count |
 | `fetch_station` | download station file from Mesonet API (true/false) |
 | `fetch_metadata`, `metadata_filename` | station-metadata fetch + output file |
@@ -260,16 +302,18 @@ CLI keys verbatim.
 | `write_ascii_output` | write ASCII fire behavior files (true/false) |
 | `ascii_out_aaigrid` | AAIGRID format (default true) |
 | `ascii_out_json` | JSON ASCII grids (default false) |
-| `ascii_out_4326` | write in EPSG:4326 lat/lon (default false) |
-| `ascii_out_utm` | write in UTM northing/easting (default true) |
+| `ascii_out_geog` | write in geographic EPSG:4326 lat/lon (default false) |
+| `ascii_out_proj` | write in the DEM's projection coordinates (UTM for WindNinja-downloaded DEMs; default true) |
 | `ascii_out_uv` | write u,v vector components (default false) |
 | `ascii_out_resolution`, `units_ascii_out_resolution` | grid size for ASCII outputs (`-1` = mesh res) |
+| `write_geotiff_output` | write a GeoTIFF (plus `geotiff_out_resolution`/`units_geotiff_out_resolution`) |
+| `write_wx_model_geotiff_output` | GeoTIFF of the raw wx-model forecast |
 | `write_shapefile_output` | plus `shape_out_resolution`/`units_shape_out_resolution` |
 | `write_goog_output` | Google-Earth KMZ (plus `goog_out_resolution`, `goog_out_color_scheme`, `goog_out_vector_scaling`) |
 | `write_wx_model_ascii_output` / `_shapefile_output` / `_goog_output` | same outputs for raw wx-model forecast |
 | `write_vtk_output` | VTK of the (analytic/mass) mesh |
 | `write_pdf_output` | geospatial PDF (`pdf_size`, `pdf_width/height`, `pdf_linewidth`, `pdf_basemap`, `pdf_out_resolution`) |
-| `write_farsite_atm` | write a **FARSITE `.atm`** manifest + wind grids |
+| `write_farsite_atm` | write a **FARSITE `.atm`** manifest + wind grids; requires `output_wind_height` **20 ft + `output_speed_units` mph**, or **10 m + kph** (any other combo aborts the run) |
 | `write_wx_station_kml`, `write_wx_station_csv` | point-init diagnostics |
 | `output_path` | directory for outputs |
 

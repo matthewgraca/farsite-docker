@@ -67,12 +67,29 @@ threads = 4                   # num_threads for the WindNinja CLI
 [windninja.options]           # passthrough of WindNinja cfg keys (full CLI vocabulary)
 initialization_method = "wxModelInitialization"   # REQUIRED
 wx_model_type = "PASTCAST-GCP-HRRR-CONUS-3-KM"    # wx-model source (or forecast_filename)
-forecast_duration = 6         # hours of forecast to fetch (this example's window)
+# WindNinja >= 4.0: a PASTCAST model takes an explicit historical window, NOT
+# forecast_duration (the two together are rejected). Whole hours on the injected
+# time_zone clock (America/Los_Angeles below), covering the burn window
+# 2025-01-06 16:00..22:00 local == simulation 2025-01-07T00:00..06:00Z.
+start_year = 2025
+start_month = 1
+start_day = 6
+start_hour = 16
+start_minute = 0
+stop_year = 2025
+stop_month = 1
+stop_day = 6
+stop_hour = 22
+stop_minute = 0
 vegetation = "grass"
 input_wind_height = 10.0
 units_input_wind_height = "ft"
-output_wind_height = 10.0
+# The .atm writer accepts ONLY "20 ft + mph" (ENGLISH) or "10 m + kph"
+# (METRIC); 10 ft (older default) aborts the run. Keep ENGLISH to match the
+# .wxs / FARSITE inputs.
+output_wind_height = 20.0
 units_output_wind_height = "ft"
+output_speed_units = "mph"
 diurnal_winds = "true"
 # NOTE: these keys are INJECTED by the orchestrator and ALWAYS WIN over user
 # values here: elevation_file, output_path, time_zone, num_threads,
