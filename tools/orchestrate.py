@@ -761,8 +761,14 @@ class Runner:
         self.stage_windninja()
         self.stage_atm()
         self.stage_weather()
-        inputs_path, cmd_path = self.stage_assemble()
-        self.stage_run(cmd_path)
+        if self.cfg["farsite"]["enable"]:
+            inputs_path, cmd_path = self.stage_assemble()
+            self.stage_run(cmd_path)
+        else:
+            self.stage("farsite")
+            print("farsite disabled (enable=false); inputs assembly and "
+                  "runfarsite skipped — prior -FarsiteInputs/-FarsiteCmd files "
+                  "are left untouched")
         print("\ndone")
 
 

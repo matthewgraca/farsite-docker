@@ -1,7 +1,9 @@
 # config.example.toml - single source of truth for a FARSITE/WindNinja run.
 #
-# Copy this file to your own config and adapt. Relative paths resolve against
-# the repo root. All four [*stage*] enable switches default to true; set one to
+# Copy this file to your own config and adapt. Every key, default, and
+# constraint is documented in docs/CONFIG.md (the full schema reference).
+# Relative paths resolve against the repo root. The per-stage
+# enable switches default to true; set one to
 # false AND provide its input override to reuse prior outputs (resumability
 # after a partial/network failure, or to drive WindNinja/FARSITE by hand).
 #
@@ -106,7 +108,9 @@ threads = 8                   # Phase-A download threads
 elevation_tol_ft = 500        # elevation-match tolerance when sampling the HRRR cell
 
 [farsite]
-enable = true                 # false => neither assembly nor runfarsite
+enable = true                 # false => neither assembly nor runfarsite (prior
+                              #   -FarsiteInputs/-FarsiteCmd files are untouched,
+                              #   e.g. the resumed hand-drive path) - see docs/CONFIG.md
 run = false                   # true => invoke runfarsite (needs [farsite] command);
                               #   false => assemble the inputs + command files only
 command = ""                  # e.g. "wine C:/.../runfarsite.exe" (Linux/WSL) or native

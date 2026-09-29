@@ -325,6 +325,10 @@ python tools/orchestrate.py --config config.example.toml            # run
 python tools/orchestrate.py --config config.example.toml --dry-run  # plan only
 ```
 
+The complete schema — every section, key, default, and constraint — is in
+[`../docs/CONFIG.md`](../docs/CONFIG.md); `config.example.toml` is an annotated
+Palisades 2025 sample.
+
 `--dry-run` prints every planned subprocess argv plus the full text of every
 file that would be written (WindNinja cfg, FARSITE inputs + command files),
 and touches nothing on disk. `--config` is required; config errors exit 2.
@@ -372,7 +376,9 @@ a partial/network failure):
    `<run>/<slug>-FarsiteCmd.txt` of absolute paths.
 8. **farsite-run** — `runfarsite` when `[farsite] run=true` (requires
    `[farsite] command`, e.g. `wine C:/.../runfarsite.exe`); `run=false` assembles
-   only, `enable=false` skips even assembly.
+   only; `enable=false` skips even assembly (prior inputs/command files are left
+   untouched, so a hand-edited `-FarsiteInputs.txt` survives a resumed `run=true`
+   pass).
 
 Notes:
 - The `.wxs` rows, `.atm` rows, and burn periods are all on the fire-local

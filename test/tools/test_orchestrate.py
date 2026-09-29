@@ -86,7 +86,8 @@ def build_scratch_run(tmp_path, *, n_atm=1, grids=True):
 
 
 def offline_config(tmp_path, *, run_root, weather_wxs=DATA / "palisades-hrrr.wxs",
-                   farsite_run=False, burn_periods=None, fuel_overrides=None):
+                   farsite_run=False, farsite_enable=True, burn_periods=None,
+                   fuel_overrides=None):
     """The reusable offline base config; individual tests tweak the dict."""
     weather = {"enable": False, "threads": 8, "elevation_tol_ft": 500,
                "cache_dir": None}
@@ -100,7 +101,7 @@ def offline_config(tmp_path, *, run_root, weather_wxs=DATA / "palisades-hrrr.wxs
                        "burn_periods": burn_periods or []},
         "windninja": {"enable": False, "run_root": str(run_root)},
         "weather": weather,
-        "farsite": {"enable": True, "run": farsite_run,
+        "farsite": {"enable": farsite_enable, "run": farsite_run,
                     "fuel_moistures": fuel_overrides or {}},
         "output": {"run_dir": str(tmp_path / "out")},
     }
@@ -156,6 +157,26 @@ def test_offline_assembly_end_to_end(tmp_path):
     line = cmdfile.read_text().strip().split()
     assert len(line) == 6
     assert line[1] == str(inputs.resolve())
+
+
+def test_farsite_disabled_skips_assembly_and_run(tmp_path):
+    """farsite.enable=false: assembly and runfarsite are skipped; upstream
+    reuse legs still run, and no -FarsiteInputs/-FarsiteCmd files are written
+    (the resumed hand-drive path keeps prior files untouched)."""
+    run_root = build_scratch_run(tmp_path)
+    cfg = write_config(tmp_path, "nofar.toml",
+                       offline_config(tmp_path, run_root=run_root,
+                                      farsite_enable=False, farsite_run=True))
+    rc, out = run_main(["--config", str(cfg)])
+    assert rc == 0
+    out_dir = tmp_path / "out"
+    # upstream leg still ran (reused overrides are executed)
+    assert (out_dir / "palisades-dem.tif").is_file()
+    assert "atm verified: 2 rows, 4 grids OK" in out
+    # farsite leg skipped: no assembly, and run=true + empty command never dies
+    assert not (out_dir / "palisades-FarsiteInputs.txt").exists()
+    assert not (out_dir / "palisades-FarsiteCmd.txt").exists()
+    assert "farsite disabled" in out
 
 
 # ---------------------------------------------------------------------------
