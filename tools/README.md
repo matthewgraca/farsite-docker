@@ -49,7 +49,9 @@ For each resolved fire the tool:
 3. writes `ignition.*` (one POINT shape, the `FARSITE_IGNITION_FILE` seed)
    and `reference_perimeter.*` (the real final footprint as a multipart
    POLYGON to compare against the simulated perimeter), both with `.prj`
-   WKT, plus `fire.json`;
+   written as **WKT1_GDAL** (runfarsite's embedded GDAL parses legacy WKT1 and
+   rejects pyproj's WKT2 default with `ERROR 1: missing , or ]`), plus
+   `fire.json`;
 4. prints a ready-to-run `hrrr_to_wxs.py` command with `--lat/--lon` pinned
    to the ignition point and a whole-hour-UTC `--start/--end` taken from the
    FRAP alarm/containment dates.

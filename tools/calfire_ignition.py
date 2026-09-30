@@ -254,7 +254,11 @@ def _write_shapefile(out_dir, base, shape_type, rings_or_point, attrs, crs):
         w.poly(rings_or_point)
     w.record(*[attrs[name] for name, _, _, _ in SHP_FIELDS])
     w.close()
-    (out_dir / f"{base}.prj").write_text(crs.to_wkt())
+    # WKT1_GDAL, not pyproj's WKT2 default: runfarsite's embedded GDAL parses
+    # legacy WKT1 (PROJCS/GEOGCS) and rejects WKT2 (GEOGCRS/ENSEMBLE ...) with
+    # "ERROR 1: missing , or ]", which leaves the seed coordinate misplaced and
+    # the run growing nothing.
+    (out_dir / f"{base}.prj").write_text(crs.to_wkt(version="WKT1_GDAL"))
 
 
 def write_point_shp(out_dir, lon, lat, attrs, crs):

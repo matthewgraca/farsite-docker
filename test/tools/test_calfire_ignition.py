@@ -93,7 +93,7 @@ def test_reference_perimeter_shapefile_is_polygon(run):
         assert xmin < LON < xmax and ymin < LAT < ymax  # ignition inside footprint
     for base in ("ignition", "reference_perimeter"):
         prj = (run.out_dir / f"{base}.prj").read_text()
-        assert "GEOGCRS" in prj and "WGS 84" in prj   # WKT2 of EPSG:4326
+        assert "GEOGCS" in prj and "WGS 84" in prj   # WKT1_GDAL of EPSG:4326 (runfarsite parses WKT1)
 
 
 def test_prints_sample_hrrr_command(run):
