@@ -350,7 +350,16 @@ def _dist2(lat, lon, lat_arr, lon_arr):
 
 
 def choose_cell(ds, lat, lon, dem, tol_ft, dem_window_radius=25):
-    """Reprojection-safe representative cell: nearest, then elevation-matched."""
+    """Reprojection-safe representative cell: nearest, then elevation-matched.
+
+    DEM values are read with rasterio ``index()``/``read()`` rather than
+    ``DatasetReader.sample()``: in some Windows environments rasterio's
+    ``sample()`` degrades to all-masked/nan for perfectly valid in-bounds
+    coordinates (a DLL-shadowed GDAL breaks that warp path) while plain
+    index()+read works identically. A nodata/edge cell at the nearest HRRR cell
+    is not fatal - the ±window search rescues to the nearest valid cell, and we
+    die only when the whole window has no valid data (true non-coverage).
+    """
     lat2d = ds["latitude"].values
     lon2d = ds["longitude"].values
     ny, nx = lat2d.shape
@@ -358,21 +367,31 @@ def choose_cell(ds, lat, lon, dem, tol_ft, dem_window_radius=25):
     d2 = _dist2(lat, lon, lat2d, lon2d)
     iy0, ix0 = np.unravel_index(int(np.nanargmin(d2)), d2.shape)
 
-    # demonstrate DEM coverage at the nearest cell (else hard error)
     from pyproj import Transformer
     t = Transformer.from_crs("EPSG:4326", dem.crs, always_xy=True)
     nd = dem.nodata  # explicit fill (e.g. LANDFIRE LCP -9999 outside the landscape)
-    xi, yi = t.transform(float(lon2d[iy0, ix0]), float(lat2d[iy0, ix0]))
-    try:
-        target_m = float(next(dem.sample([(xi, yi)], masked=True))[0])
-    except Exception as e:  # noqa: BLE001
-        die(f"cannot sample DEM '{dem.name}' at nearest cell "
-            f"({lat2d[iy0, ix0]:.4f}, {lon2d[iy0, ix0]:.4f}): {e}")
-    if target_m is None or np.isnan(target_m) or (nd is not None and target_m == nd):
-        die(f"DEM '{dem.name}' has no data at nearest cell "
-            f"({lat2d[iy0, ix0]:.4f}, {lon2d[iy0, ix0]:.4f}); "
-            "does the raster cover the anchor?")
-    target_ft = target_m * 3.28084
+    band1 = dem.read(1)  # elevation band, one read -> numpy lookup
+    nrow, ncol = band1.shape
+
+    def _vals(rows, cols):
+        """Band-1 values at pixel (rows, cols); NaN when out-of-bounds/nodata.
+        rows/cols are scalars or int arrays (rasterio rowcol output)."""
+        rows = np.asarray(rows)
+        cols = np.asarray(cols)
+        vals = np.full(rows.shape, np.nan)
+        ok = (rows >= 0) & (rows < nrow) & (cols >= 0) & (cols < ncol)
+        vals[ok] = band1[rows[ok], cols[ok]]
+        if nd is not None:
+            n = float(nd)
+            vals[ok & (vals == n)] = np.nan
+        return vals
+
+    # nearest HRRR cell -> DEM pixel; CF longitudes are 0..360, normalize first
+    lon0 = ((float(lon2d[iy0, ix0]) + 180) % 360) - 180
+    x0m, y0m = t.transform(lon0, float(lat2d[iy0, ix0]))
+    r0, c0 = dem.index(x0m, y0m)
+    target_m = float(_vals(r0, c0))
+    target_ft = None if np.isnan(target_m) else target_m * 3.28084
 
     # elevation-matched refinement over a window around the nearest cell
     y0, y1 = max(0, iy0 - dem_window_radius), min(ny, iy0 + dem_window_radius + 1)
@@ -380,28 +399,36 @@ def choose_cell(ds, lat, lon, dem, tol_ft, dem_window_radius=25):
     wlat = lat2d[y0:y1, x0:x1]
     wlon = lon2d[y0:y1, x0:x1]
 
-    lons = wlon.ravel()
-    lats = wlat.ravel()
-    xs, ys = t.transform(lons, lats)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)  # masked->nan is intended
-        samples = np.array([
-            np.nan if v is None or (nd is not None and float(v[0]) == nd)
-            else float(v[0])
-            for v in dem.sample(list(zip(xs, ys)), masked=True)])
-    elems_m = samples.reshape(wlat.shape)
-    match = (np.abs(elems_m * 3.28084 - target_ft) <= tol_ft)
+    lons = ((wlon + 180) % 360) - 180  # 0..360 -> -180..180 before transform
+    xs, ys = t.transform(lons.ravel(), wlat.ravel())
+    # note: dem.index() is scalar-only; rowcol() vectorizes over arrays
+    from rasterio.transform import rowcol
+    rows, cols = rowcol(dem.transform, xs, ys, op=np.floor)
+    rows = np.asarray(rows, dtype=np.intp)
+    cols = np.asarray(cols, dtype=np.intp)
+    elems_m = _vals(rows, cols).reshape(wlat.shape)
     d2w = _dist2(lat, lon, wlat, wlon)
-    d2w = np.where(match, d2w, np.inf)
-    d2w = np.where(np.isnan(elems_m), np.inf, d2w)
-    if not np.isfinite(d2w).any():
-        print("  warning: no DEM cell within elevation tolerance; using plain nearest cell")
-        iy, ix = iy0, ix0
-        dem_ft = target_ft
-    else:
-        k = int(np.nanargmin(d2w))
+    if not np.isfinite(elems_m).any():
+        die(f"DEM '{dem.name}' has no elevation data in the ±{dem_window_radius}-cell "
+            f"window around the nearest HRRR cell ({lat2d[iy0, ix0]:.4f}, {lon0:.4f}); "
+            "does the raster cover the anchor?")
+    if target_ft is None:
+        # nearest cell invalid/nodata: rescue to the nearest valid window cell
+        k = int(np.nanargmin(np.where(np.isfinite(elems_m), d2w, np.inf)))
         iy, ix = y0 + k // wlat.shape[1], x0 + k % wlat.shape[1]
         dem_ft = float(elems_m.ravel()[k]) * 3.28084
+    else:
+        match = (np.abs(elems_m * 3.28084 - target_ft) <= tol_ft)
+        d2w = np.where(match, d2w, np.inf)
+        d2w = np.where(np.isnan(elems_m), np.inf, d2w)
+        if not np.isfinite(d2w).any():
+            print("  warning: no DEM cell within elevation tolerance; using plain nearest cell")
+            iy, ix = iy0, ix0
+            dem_ft = target_ft
+        else:
+            k = int(np.nanargmin(d2w))
+            iy, ix = y0 + k // wlat.shape[1], x0 + k % wlat.shape[1]
+            dem_ft = float(elems_m.ravel()[k]) * 3.28084
 
     # HRRR longitudes are 0..360 (CF convention); normalize to -180..180
     clat, clon = float(lat2d[iy, ix]), ((float(lon2d[iy, ix]) + 180) % 360) - 180
