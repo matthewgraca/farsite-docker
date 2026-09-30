@@ -231,6 +231,40 @@ def _subset_ok(cf):
         return False
 
 
+def scan_cache(utc_hours, cache_dir):
+    """Once-over over the window's cached subsets.
+
+    Returns ``(problems, first_good_hour, first_good_ds)`` where ``problems``
+    lists *every* hour whose cache file is missing/empty, undecodable, or
+    missing wanted variables (as ``"YYYYMMDDHH: reason"`` strings). Callers die
+    with the whole list so a run with several corrupt downloads reports them all
+    at once (delete all the listed files, re-run once) instead of one file at a
+    time. ``first_good_hour``/``first_good_ds`` are the first fully-decodable
+    subset (used to pick the representative cell); None when every file is bad.
+    """
+    problems = []
+    first_good_hour = None
+    first_good_ds = None
+    for h in utc_hours:
+        cf = cache_dir / f"hrrr_{h:%Y%m%d%H}.grib2"
+        if not (cf.exists() and cf.stat().st_size > 0):
+            problems.append(f"{h:%Y%m%d%H}: file missing/empty")
+            continue
+        try:
+            ds = open_cached(cf)
+        except Exception as e:  # noqa: BLE001
+            problems.append(f"{h:%Y%m%d%H}: cannot decode ({type(e).__name__}: {e})")
+            continue
+        miss = [s for s, _, _ in WANTED if s not in ds]
+        if miss:
+            problems.append(f"{h:%Y%m%d%H}: missing {', '.join(miss)}")
+            continue
+        if first_good_hour is None:
+            first_good_hour = h
+            first_good_ds = ds
+    return problems, first_good_hour, first_good_ds
+
+
 def fetch_grib(utc_hours, cache_dir, threads):
     """Parallel downloading of grib files from NOAA's AWS bucket
     """
@@ -294,7 +328,7 @@ def fetch_grib(utc_hours, cache_dir, threads):
                     failures.append((h, err))
                 bar.update(1)
     if failures:
-        shown = ", ".join(f"{h:%Y%m%d%H} ({e})" for h, e in failures[:5])
+        shown = ", ".join(f"{h:%Y%m%d%H} ({e})" for h, e in failures)
         die(f"fetch failed for {len(failures)} hour(s): {shown}")
     # verify every requested hour is on disk and non-empty
     bad = [h for h in uncached
@@ -627,18 +661,14 @@ def main(argv=None):
     fetch_grib(utc_hours, cache_dir, args.threads)
 
     # ---- Phase B: offline conversion -----------------------------------
-    ds0_file = cache_dir / f"hrrr_{utc_hours[0]:%Y%m%d%H}.grib2"
-    if not (ds0_file.exists() and ds0_file.stat().st_size > 0):
-        die(f"cache file missing/invalid: {ds0_file}; delete it and re-run to refetch")
-    try:
-        ds0 = open_cached(ds0_file)
-    except Exception as e:  # noqa: BLE001
-        die(f"failed to open cached {ds0_file} for {utc_hours[0]:%Y%m%d%H}: {e}; "
-            "delete it and re-run to refetch")
-    m0 = [s for s, _, _ in WANTED if s not in ds0]
-    if m0:
-        die(f"cached {ds0_file} for {utc_hours[0]:%Y%m%d%H} is incomplete - missing "
-            f"{', '.join(m0)}; delete it and re-run to refetch")
+    # Once-over: flag every corrupt/incomplete subset in the window at once so
+    # a run with several bad downloads reports them all (delete all the listed
+    # files, re-run once) instead of dying one file at a time.
+    problems, _, ds0 = scan_cache(utc_hours, cache_dir)
+    if problems:
+        lines = "\n".join(f"  {p}" for p in problems)
+        die(f"corrupt/incomplete cache for {len(problems)} hour(s) in the window "
+            f"- delete the listed files and re-run to refetch:\n{lines}")
     iy, ix, clat, clon, dem_ft, _tgt = choose_cell(ds0, lat, lon, dem,
                                                    args.elevation_tol_ft)
     raws_elev = int(round(dem_ft))
