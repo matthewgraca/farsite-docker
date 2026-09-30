@@ -68,6 +68,20 @@ class as an OSGeo4W-on-PATH clash). `FireBehaviorModels\SetEnv.bat` does prepend
 `bin`; that is fine in a `runfarsite`-only shell, but prefer the three `set`
 lines above in the terminal that launches `orchestrate.py`.
 
+## OSGeo4W dll clobbering
+If you have OSGeo4W, it will compete with your conda environment's dlls, causing 
+libraries like `rasterio` to fail.
+
+Kick OSGeo4W out of your path for this session:
+```bat
+set "PATH=%PATH:C:\path\to\OSGeo4W\binaries;=%"
+```
+
+For my machine, it looks like:
+```bat
+set "PATH=%PATH:C:\Users\mgraca\AppData\Local\Programs\OSGeo4W\bin;=%"
+```
+
 ## ecCodes definitions (conda-forge win-64: MEMFS)
 
 conda-forge's win-64 `eccodes` can be built with MEMFS: it serves the GRIB
