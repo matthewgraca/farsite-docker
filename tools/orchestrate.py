@@ -39,6 +39,10 @@ REPO_ROOT = TOOL_DIR.parent
 #  Model F1 F10 F100 FMLiveHerb FMLiveWoody
 _FUEL_MOISTURE_DEFAULTS = "6 7 8 60 90 16"
 
+# FARSITE ignition preflight -------------------------------------------------
+_IGNITION_MAX_NUDGE_M = 5000.0               # refuse to teleport the seed farther
+_NB_FUEL_MODELS = {0} | set(range(91, 100))  # Scott & Burgan NB1-NB9 + model 0
+
 _DEFAULTS = {
     "fire": {"enable": True, "name": None, "year": None, "index": None,
              "lat": None, "lon": None, "crs": None, "fire_json": None},
@@ -305,6 +309,133 @@ def find_wn_atm(run_root):
         die(f"ambiguous: multiple .atm under {run_root}: "
             + ", ".join(p.name for p in atms))
     return atms[0]
+
+
+def ensure_ignition_burnable(lcp, ign_shp, fire_json, *,
+                             max_nudge_m=_IGNITION_MAX_NUDGE_M, dry=False):
+    """Pre-flight: make sure the FARSITE ignition seed sits on burnable LCP.
+
+    A WFIGS/IRWIN seed is the real ignition point, but the LCP fuel code at that
+    exact 30 m pixel can be non-burnable (NB1-9 / model 0 / nodata), in which
+    case FARSITE would report no growth. When so, nudge the seed to the nearest
+    burnable cell (ring expansion on LCP band 4, ), persist the moved geometry
+    (the .shp file FARSITE reads) and an audit block in fire.json, and return a
+    dict describing the decision. fire.json's top-level lat/lon (the weather /
+    elevation anchor) is left untouched. dry=True computes and reports but
+    writes nothing.
+    """
+    import json as _json  # noqa (module json already imported; kept explicit)
+    import numpy as np
+    import shapefile
+    from pyproj import CRS, Transformer
+
+    ign_shp = respath(ign_shp)
+    fire_json = respath(fire_json)
+
+    def _base(**kw):
+        return {"seed_fuel": None, "burnable": False, "adjusted": False,
+                "offset_m": None, "seed_pixel": None, "seed_latlon": None,
+                "adjusted_pixel": None, "adjusted_latlon": None,
+                "adjusted_fuel": None, **kw}
+
+    reader = shapefile.Reader(str(ign_shp))
+    x, y = map(float, reader.shape(0).points[0])
+
+    with _open_lcp(lcp) as ds:
+        lcp_crs = ds.crs
+        band = ds.read(4)
+        hgt, wid = band.shape
+        nod = ds.nodata
+
+        # reproject the seed into LCP space (identity when the CRSs match)
+        prj = ign_shp.with_suffix(".prj")
+        shp_crs = None
+        if prj.is_file():
+            try:
+                shp_crs = CRS.from_wkt(prj.read_text(encoding="utf-8-sig"))
+            except Exception:  # noqa: BLE001 - a broken .prj means "unknown CRS"
+                shp_crs = None
+        tr = Transformer.from_crs(shp_crs or lcp_crs, lcp_crs, always_xy=True)
+        if shp_crs is not None:
+            x, y = tr.transform(x, y)
+        py, px = ds.index(x, y)
+        inb = 0 <= py < hgt and 0 <= px < wid
+        seed_fuel = int(band[py, px]) if inb else nod
+
+        def _burnable(v):
+            return not (v == nod or v in _NB_FUEL_MODELS)
+
+        geo = Transformer.from_crs(lcp_crs, "EPSG:4326", always_xy=True)
+        lon, lat = geo.transform(x, y)
+        rec = _base(seed_fuel=seed_fuel, seed_pixel=(py, px) if inb else None,
+                    seed_latlon={"lat": lat, "lon": lon})
+        if _burnable(seed_fuel):
+            rec["burnable"] = True
+            return rec
+
+        # nearest burnable cell: ring expansion, capped at max_nudge_m
+        res = abs(ds.res[0])
+        cap_px = int(max_nudge_m / res) + 1
+        best = None
+        for sr in range(1, cap_px + 1):
+            rmin, rmax = max(0, py - sr), min(hgt, py + sr + 1)
+            cmin, cmax = max(0, px - sr), min(wid, px + sr + 1)
+            rrows, rcols = [], []
+            for rr in range(rmin, rmax):
+                for cc in (cmin, cmax - 1):
+                    if cmin <= cc < cmax:
+                        rrows.append(rr)
+                        rcols.append(cc)
+            for cc in range(cmin, cmax):
+                for rr in (rmin, rmax - 1):
+                    if rmin <= rr < rmax:
+                        rrows.append(rr)
+                        rcols.append(cc)
+            if not rrows:
+                continue
+            rows = np.asarray(rrows, dtype=np.intp)
+            cols = np.asarray(rcols, dtype=np.intp)
+            vals = band[rows, cols]
+            burn = np.array([_burnable(int(v)) for v in vals])
+            if burn.any():
+                dr = rows[burn] - py
+                dc = cols[burn] - px
+                k = int(np.argmin(dr * dr + dc * dc))
+                best = (int(rows[burn][k]), int(cols[burn][k]))
+                break
+        if best is None:
+            die(f"no burnable LCP cell within {max_nudge_m:.0f} m of the ignition "
+                f"seed; refusing to nudge the seed farther")
+        npy, npx = best
+        nx2, ny2 = ds.xy(npy, npx)
+        off_m = float(((nx2 - x) ** 2 + (ny2 - y) ** 2)) ** 0.5
+        nlon, nlat = geo.transform(nx2, ny2)
+        rec = _base(seed_fuel=seed_fuel, burnable=False, adjusted=True,
+                    offset_m=off_m, seed_pixel=(py, px) if inb else None,
+                    seed_latlon={"lat": lat, "lon": lon},
+                    adjusted_pixel=(npy, npx),
+                    adjusted_latlon={"lat": nlat, "lon": nlon},
+                    adjusted_fuel=int(band[npy, npx]))
+        if dry:
+            return rec
+        # the .shp FARSITE reads: rewrite the moved seed (same fields/CRS)
+        w = shapefile.Writer(str(ign_shp))
+        w.shapeType = reader.shapeType
+        w.fields = [f for f in reader.fields if f[0] != "DeletionFlag"]
+        w.record(*list(reader.record(0)))
+        w.point(nx2, ny2)
+        w.close()
+        # audit trail in fire.json; the weather anchor (lat/lon) is untouched
+        fj = json.loads(fire_json.read_text())
+        fj["ignition_adjusted"] = {
+            "original": {"lat": lat, "lon": lon},
+            "adjusted": {"lat": nlat, "lon": nlon},
+            "offset_m": round(off_m, 1),
+            "original_fuel": seed_fuel,
+            "adjusted_fuel": rec["adjusted_fuel"],
+        }
+        fire_json.write_text(json.dumps(fj, indent=2) + "\n")
+        return rec
 
 
 class Runner:
@@ -752,11 +883,50 @@ class Runner:
         self.run_cmd("farsite-run", [*split_command(command), str(cmd_path)], cwd=cwd)
         print(f"farsite done; outputs base: {self.out_base.resolve()}")
 
+    # ---------------------------------------------------- stage 4b ----
+    def stage_ignition(self):
+        """Pre-flight: keep the FARSITE ignition seed on burnable LCP.
+
+        WFIGS/IRWIN seeds are real ignition points, but the LCP fuel code at the
+        exact 30 m pixel can be non-burnable (urban/water/nodata); FARSITE would
+        then report no growth. Nudge to the nearest burnable cell (notified +
+        recorded in fire.json). The weather/elevation anchor stays at the
+        original WFIGS coordinate.
+        """
+        self.stage("farsite-ignition")
+        lcp = Path(self.lcp) if self.lcp else None
+        ign = self.ignition_shp()
+        fire_json = self.run_dir / "fire.json"
+        if not (lcp and lcp.is_file() and ign.is_file() and fire_json.is_file()):
+            print("skip: need LCP + ignition.shp + fire.json")
+            return
+        try:
+            rec = ensure_ignition_burnable(lcp, ign, fire_json, dry=self.dry)
+        except SystemExit:
+            raise
+        except Exception as e:  # noqa: BLE001 - a failed preflight shouldn't stop the run
+            print(f"ignition burnability preflight skipped: {e}")
+            return
+        if rec["burnable"]:
+            print(f"ignition seed cell burnable (fuel {rec['seed_fuel']}); no adjustment")
+            return
+        s = rec["seed_latlon"] or {}
+        a = rec["adjusted_latlon"] or {}
+        orig = f"({s['lat']:.6f}, {s['lon']:.6f})" if s.get("lat") is not None else "n/a"
+        print(f"ignition seed fuel {rec['seed_fuel']} is non-burnable; "
+              f"nudging {rec['offset_m']:.0f} m to fuel {rec['adjusted_fuel']} at "
+              f"({a['lat']:.6f}, {a['lon']:.6f})")
+        print(f"  original WFIGS seed: {orig}")
+        if self.dry:
+            print("[dry-run] would rewrite ignition.shp and record fire.json "
+                  "'ignition_adjusted' on a real run")
+
     # ---------------------------------------------------------------- run ---
     def run(self):
         self.init_paths()
         self.stage_landscape()
         fj = self.stage_fire()
+        self.stage_ignition()
         self.stage_window(fj)
         self.stage_windninja()
         self.stage_atm()

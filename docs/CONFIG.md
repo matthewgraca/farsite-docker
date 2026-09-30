@@ -86,6 +86,17 @@ footprint + `fire.json`.
 zone, and HRRR anchor. The script prints a ready-to-run `hrrr_to_wxs.py`
 command for reference.
 
+**Ignition burnability preflight** (runs between fire and window): the WFIGS
+seed's LCP fuel cell is checked on band 4. If it is non-burnable — fuel model
+`0`, `91–99` (Scott & Burgan NB1–9), or nodata — FARSITE would grow nothing, so
+the seed is **nudged to the nearest burnable cell** (ring search, refusal beyond
+5 km), the moved `ignition.shp` is rewritten (the file FARSITE's command file
+points at), and the change is recorded under `fire.json["ignition_adjusted"]`
+(`original`/`adjusted` lat-lon, `offset_m`, `original_fuel`, `adjusted_fuel`).
+The top-level `fire.json` `lat`/`lon` (the weather/elevation anchor) is left at
+the **original WFIGS coordinate** — only the seed moves. `--dry-run` prints what
+would happen without writing.
+
 ---
 
 ## 4. `[landscape]` — LCP + DEM

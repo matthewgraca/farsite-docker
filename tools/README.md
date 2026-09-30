@@ -345,6 +345,12 @@ a partial/network failure):
    --crs <LCP CRS> --out-dir <run>`; `fire.json` fields (name/year/alarm/cont/
    lat/lon) then drive the window, timezone, and HRRR anchor. `enable=false`
    reuses `[fire] fire_json`.
+2b. **ignition preflight** — checks the WFIGS seed's LCP fuel cell is burnable;
+   if it is non-burnable (NB1-9 / model 0 / nodata, where FARSITE would grow
+   nothing) the seed is nudged to the nearest burnable cell (≤ 5 km), the
+   moved `ignition.shp` is rewritten, and the offset is recorded under
+   `fire.json.ignition_adjusted`. The weather/elevation anchor keeps the
+   original WFIGS coordinate.
 3. **window** — UTC burn window from `[simulation] start/end` else the fire.json
    alarm/containment; the fire-local STANDARD IANA clock comes from
    `[simulation] row_timezone` or is derived from the ignition point. `lead_days`
