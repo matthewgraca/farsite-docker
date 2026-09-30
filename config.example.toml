@@ -65,7 +65,7 @@ command = ""                  # e.g. "wine C:/.../WindNinja_cli.exe" (Linux/WSL)
                               #   (re-run with the same --config to resume).
 # run_root = "…/windroot"      # dir of per-hour _vel.asc/_ang.asc pairs + the
                               #   .atm + the .cfg; default <run>/windroot
-threads = 4                   # num_threads for the WindNinja CLI. Individual solvers are
+threads = 1                   # num_threads for the WindNinja CLI. Individual solvers are
                               #   already parallelized, so keep this low an monitor your memory
 [windninja.options]           # passthrough of WindNinja cfg keys (full CLI vocabulary)
 initialization_method = "wxModelInitialization"   # REQUIRED

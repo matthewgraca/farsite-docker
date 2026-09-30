@@ -35,25 +35,77 @@ Activate with `conda activate flammap`.
 The orchestrator's subprocesses inherit the parent shell's environment, so the
 native binaries need their runtime variables in **the same terminal** that
 launches `orchestrate.py`. Either run `FireBehaviorModels\SetEnv.bat` in that
-terminal, or set the four variables yourself:
+terminal, or set the three data variables yourself:
 
 | Variable | Value |
 |---|---|
-| `PATH` | += `FireBehaviorModels\bin` |
+| `PATH` | *(not required)* — the exes load their DLL family from their own directory; prepending `bin` can shadow the conda GDAL DLLs (see note below) |
 | `GDAL_DATA` | `FireBehaviorModels\bin\share\gdal-data` |
 | `PROJ_LIB` | `FireBehaviorModels\bin\share\proj` |
 | `WINDNINJA_DATA` | `FireBehaviorModels\bin\share\windninja-data` |
 
-PowerShell equivalent (paths under `C:\path\to`):
+cmd equivalent (paths under `C:\path\to`):
 
-```powershell
-$env:PATH = "C:\path\to\FireBehaviorModels\bin;" + $env:PATH
-$env:GDAL_DATA = "C:\path\to\FireBehaviorModels\bin\share\gdal-data"
-$env:PROJ_LIB  = "C:\path\to\FireBehaviorModels\bin\share\proj"
-$env:WINDNINJA_DATA = "C:\path\to\FireBehaviorModels\bin\share\windninja-data"
+```bat
+set "GDAL_DATA=C:\path\to\FireBehaviorModels\bin\share\gdal-data"
+set "PROJ_LIB=C:\path\to\FireBehaviorModels\bin\share\proj"
+set "WINDNINJA_DATA=C:\path\to\FireBehaviorModels\bin\share\windninja-data"
 ```
 
-Required for the native `runfarsite.exe` / `WindNinja_cli.exe`.
+Required for the native `runfarsite.exe` / `WindNinja_cli.exe`. These three
+data variables point at the repo's **native** GDAL/proj/WindNinja data and must
+match the DLLs `runfarsite.exe`/`WindNinja_cli.exe` load (the repo's `bin`
+stack). The conda `rasterio`/`pyproj` also read `GDAL_DATA`/`PROJ_LIB` and read
+the repo's data fine (they are plain, version-tolerant tables); pointing the
+*natives* at the conda-shared dirs instead would be the wrong-database case, so
+set them here and not to the conda env's `Library\share\...`.
+
+`FireBehaviorModels\bin` does **not** need to be on `PATH` — the native exes
+resolve their sibling DLLs from their own directory. Prepending `bin` to `PATH`
+in the same terminal as the Python pipeline can shadow the conda GDAL DLLs and
+break `rasterio` imports ("DLL load failed ... procedure not found" — the same
+class as an OSGeo4W-on-PATH clash). `FireBehaviorModels\SetEnv.bat` does prepend
+`bin`; that is fine in a `runfarsite`-only shell, but prefer the three `set`
+lines above in the terminal that launches `orchestrate.py`.
+
+## ecCodes definitions (conda-forge win-64: MEMFS)
+
+conda-forge's win-64 `eccodes` can be built with MEMFS: it serves the GRIB
+definition/sample files from an **in-memory filesystem** (`/MEMFS/definitions`),
+which intermittently delivers truncated reads to eccodes' flex-generated `.def`
+parser. Symptom during the weather stage (Phase A `hrrr` decode):
+
+```
+fatal flex scanner internal error--end of buffer missed
+ECCODES ERROR   :  Parser: syntax error at line 3 of /MEMFS/definitions/grib2/templates/template.3.resolution_flags.def
+error: stage 'weather' failed (rc=2)   # a C-level exit(2); the per-hour Python retry cannot catch it
+```
+
+Detect it:
+
+```bat
+python -m eccodes selfcheck
+rem if it prints "Definitions: /MEMFS/definitions" (instead of a real path), the build is MEMFS-affected
+```
+
+Fix: give eccodes a real definitions tree on disk, matching your installed
+`eccodes` version (tag below is `2.49.0` — use your `conda list -n flammap`
+version's tag):
+
+```bat
+curl.exe -L -o "%USERPROFILE%\eccodes-2.49.0.zip" https://github.com/ecmwf/eccodes/archive/refs/tags/2.49.0.zip
+tar -xf "%USERPROFILE%\eccodes-2.49.0.zip" -C "%USERPROFILE%"
+
+set "ECCODES_DEFINITION_PATH=%USERPROFILE%\eccodes-2.49.0\definitions"
+set "ECCODES_SAMPLES_PATH=%USERPROFILE%\eccodes-2.49.0\samples"
+python -m eccodes selfcheck
+rem now real paths; then re-run the weather stage
+```
+
+The two `ECCODES_*` variables belong in the same terminal as `orchestrate.py`
+alongside the data variables above (the env vars take precedence over the
+compiled-in MEMFS default; eccodes then parses real files and the truncation is
+gone).
 
 ## `config.example.toml` native entries
 
@@ -80,6 +132,8 @@ valid.
 ## Smoke before a real run
 
 ```bat
+python -m eccodes selfcheck
+rem Definitions/Samples must be real paths, not /MEMFS/...
 python -m pytest -m "not integration"
 python tools/orchestrate.py --config config.example.toml --dry-run
 ```
