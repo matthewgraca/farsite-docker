@@ -104,14 +104,19 @@ rem if it prints "Definitions: /MEMFS/definitions" (instead of a real path), the
 
 Fix: give eccodes a real definitions tree on disk, matching your installed
 `eccodes` version (tag below is `2.49.0` — use your `conda list -n flammap`
-version's tag):
+version's tag). Use Python's `zipfile` to extract — Windows `tar` drops deep
+entries (`Can't create '\\?\C:\...'`, an incomplete tree that still looks
+present), and `zipfile` keeps the archive's top-level folder:
 
 ```bat
 curl.exe -L -o "%USERPROFILE%\eccodes-2.49.0.zip" https://github.com/ecmwf/eccodes/archive/refs/tags/2.49.0.zip
-tar -xf "%USERPROFILE%\eccodes-2.49.0.zip" -C "%USERPROFILE%"
+rmdir /s /q "%USERPROFILE%\.eccodes" 2>nul
+python -c "import zipfile; z=zipfile.ZipFile(r'%USERPROFILE%\eccodes-2.49.0.zip'); z.extractall(r'%USERPROFILE%\.eccodes'); print('entries:', len(z.namelist()))"
+python -c "import os; d=r'%USERPROFILE%\.eccodes\eccodes-2.49.0\definitions'; print('def files:', sum(len(f) for _,_,f in os.walk(d))); print('section.1.def bytes:', os.path.getsize(os.path.join(d,'grib2','section.1.def')))"
+rem expect: def files = 24115 and section.1.def bytes = 5486 (for 2.49.0)
 
-set "ECCODES_DEFINITION_PATH=%USERPROFILE%\eccodes-2.49.0\definitions"
-set "ECCODES_SAMPLES_PATH=%USERPROFILE%\eccodes-2.49.0\samples"
+set "ECCODES_DEFINITION_PATH=%USERPROFILE%\.eccodes\eccodes-2.49.0\definitions"
+set "ECCODES_SAMPLES_PATH=%USERPROFILE%\.eccodes\eccodes-2.49.0\samples"
 python -m eccodes selfcheck
 rem now real paths; then re-run the weather stage
 ```
