@@ -129,9 +129,9 @@ CH/CBH/CBD); the repo's `test/data/palisades.tif` (55.53 m) is the sample LCP.
 | `start`, `end` | str | fire.json alarm/cont | UTC whole-hour instants `YYYY-MM-DDTHH:MM` (optional trailing `Z`, no offset); give both or neither. Missing ⇒ derived from `fire.json` |
 | `row_timezone` | str | derived from ignition point | IANA clock for `.wxs`/`.atm` row labels and FARSITE local start/end (standard time; e.g. `America/Los_Angeles`) |
 | `lead_days` | int | `0` | conditioning **days** of meteorology prepended before `start` (hrrr emits leading RAWS rows; FARSITE conditions fuels). ~3–7 conventional, 0 = smallest sample |
-| `burn_periods` | list[list[str]] | `[]` | FARSITE per-day burn windows `[start, end]` of `"M D HHMM"`; each written `M D HHMM HHMM` with the end hour on the start's day — span a night with one entry per day. Empty ⇒ burn the whole window |
+| `burn_periods` | list[list[str]] | `[]` | UTC burn windows, each `[start, end]` of `"YYYY-MM-DDTHH:MM"(,Z)` (same grammar as `start`/`end`); converted internally to FARSITE per-day `M D HHMM HHMM` on the fire-local STANDARD clock — a period spanning a local midnight becomes one entry per local day. Empty ⇒ burn the whole window |
 
-Example: `burn_periods = [["1 6 1600", "1 6 2059"]]`.
+Example: `burn_periods = [["2025-01-07T00:00Z", "2025-01-07T05:00Z"]]` (== local 01-06 16:00–21:00 with `America/Los_Angeles`).
 
 ---
 
@@ -153,10 +153,6 @@ before the injected keys below, which **always win**:
 [windninja.options]
 initialization_method = "wxModelInitialization"   # REQUIRED when a cfg is written
 wx_model_type = "PASTCAST-GCP-HRRR-CONUS-3-KM"    # archived-HRRR pastcast
-start_year = 2025   start_month = 1   start_day = 6     # PASTCAST window: whole
-start_hour = 16     start_minute = 0                    # hours on the injected
-stop_year  = 2025   stop_month  = 1   stop_day  = 6     # time_zone clock; NOT
-stop_hour  = 22     stop_minute = 0                     # forecast_duration (4.0 rejects both)
 vegetation = "grass"                                    # grass | brush | trees
 input_wind_height = 10.0     units_input_wind_height = "ft"
 output_wind_height = 20.0    units_output_wind_height = "ft"   # .atm: 20ft+mph OR 10m+kph only
@@ -166,8 +162,13 @@ diurnal_winds = "true"
 
 **Injected and always-win:** `elevation_file`, `output_path`, `time_zone`,
 `num_threads`, `write_ascii_output = true`, `write_farsite_atm = true`,
-`mesh_resolution` (= LCP cell size), `units_mesh_resolution = m`. The final two
-put WindNinja's native `.atm` grids on the LCP grid, which FARSITE requires.
+`mesh_resolution` (= LCP cell size), `units_mesh_resolution = m`, and — for a
+`PASTCAST-*` `wx_model_type` — the **`start_year…stop_minute` window derived
+from `[simulation] start/end`** on the injected `time_zone` clock (so the user
+never re-types the window; WindNinja 4.0 rejects `forecast_duration` for
+PASTCAST). `start_*`/`stop_*` under `[windninja.options]` still override, e.g.
+for standalone CLI runs. `mesh_resolution` is forced to the LCP cell size so
+WindNinja's native `.atm` grids land on the LCP grid, which FARSITE requires.
 
 **WindNinja 4.0 notes** (full detail in `WindNinja-CLI.md` §4.1):
 - `PASTCAST-GCP-HRRR-CONUS-3-KM` downloads archived HRRR from

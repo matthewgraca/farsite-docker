@@ -47,12 +47,13 @@ lead_days = 3                 # conditioning DAYS of meteorology prepended befor
                               #   (hrrr downloads+emits them as leading RAWS rows; FARSITE
                               #   conditions fuels from the pre-start weather stream - the
                               #   repo sample runs ~3 days lead; FARSITE convention is 3-7).
-burn_periods = [["1 6 1600", "1 6 2059"]]   # FARSITE local-clock burn windows as
-                              #   [start, end] pairs of "M D HHMM". The END is written
-                              #   as an HHMM on the START's day (FARSITE burn periods
-                              #   are per-day 'M D HHMM HHMM'); span a night with one
-                              #   entry per day. Local = fire-local STANDARD clock,
-                              #   same as the .wxs/.atm row stamps.
+burn_periods = [["2025-01-07T00:00Z", "2025-01-07T05:00Z"]]   # UTC whole-hour burn
+                              #   windows (same grammar as start/end); converted
+                              #   internally to FARSITE per-day 'M D HHMM HHMM'
+                              #   on the fire-local STANDARD clock (a period
+                              #   spanning a local midnight becomes one entry per
+                              #   local day). == local 2025-01-06 16:00..21:00 for
+                              #   row_timezone America/Los_Angeles.
 
 [windninja]
 enable = true                 # false => reuse existing grids in run_root (no cfg/run)
@@ -70,20 +71,11 @@ threads = 1                   # num_threads for the WindNinja CLI. Individual so
 [windninja.options]           # passthrough of WindNinja cfg keys (full CLI vocabulary)
 initialization_method = "wxModelInitialization"   # REQUIRED
 wx_model_type = "PASTCAST-GCP-HRRR-CONUS-3-KM"    # wx-model source (or forecast_filename)
-# WindNinja >= 4.0: a PASTCAST model takes an explicit historical window, NOT
-# forecast_duration (the two together are rejected). Whole hours on the injected
-# time_zone clock (America/Los_Angeles below), covering the burn window
-# 2025-01-06 16:00..22:00 local == simulation 2025-01-07T00:00..06:00Z.
-start_year = 2025
-start_month = 1
-start_day = 6
-start_hour = 16
-start_minute = 0
-stop_year = 2025
-stop_month = 1
-stop_day = 6
-stop_hour = 22
-stop_minute = 0
+# WindNinja >= 4.0: a PASTCAST model takes a historical start/stop window, NOT
+# forecast_duration (the two together are rejected). The window is DERIVED
+# automatically from [simulation] start/end on the injected time_zone clock -
+# no need to enter it here; set start_year..stop_minute under
+# [windninja.options] only to override or for standalone CLI runs.
 vegetation = "grass"
 input_wind_height = 10.0
 units_input_wind_height = "ft"
@@ -96,7 +88,8 @@ output_speed_units = "mph"
 diurnal_winds = "true"
 # NOTE: these keys are INJECTED by the orchestrator and ALWAYS WIN over user
 # values here: elevation_file, output_path, time_zone, num_threads,
-# write_ascii_output, write_farsite_atm, mesh_resolution, units_mesh_resolution.
+# write_ascii_output, write_farsite_atm, mesh_resolution, units_mesh_resolution,
+# and (PASTCAST runs) start_year..stop_minute derived from [simulation].
 # mesh_resolution is forced to the LCP cell size so WindNinja's native
 # write_farsite_atm grids land on the LCP grid (FARSITE requires it).
 

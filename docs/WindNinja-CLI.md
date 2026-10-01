@@ -203,9 +203,10 @@ HRRR CONUS 3-km pastcast, downloaded over HTTPS from
 `storage.googleapis.com/high-resolution-rapid-refresh/…` (no per-run ticket).
 WindNinja **4.0 rejects `forecast_duration` for a PASTCAST model** (`Conflicting
 options 'wx_model_type' and 'forecast_duration'`) — give the historical window
-as whole-hour `start_year…stop_minute` on the `time_zone` clock instead (the
-orchestrator injects `time_zone` but not the window, so the window is a
-`[windninja.options]` passthrough):
+as whole-hour `start_year…stop_minute` on the `time_zone` clock instead. The
+repo's orchestrator **injects the window for you** from `[simulation] start/end`
+(converted to the fire-local clock); set the window yourself here only for
+standalone CLI runs:
 
 ```
 start_year  = 2025   start_month = 1   start_day = 6

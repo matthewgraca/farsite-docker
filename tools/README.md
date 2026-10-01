@@ -365,7 +365,9 @@ a partial/network failure):
 4. **windninja** — writes `<run>/windroot/<slug>.cfg`: user `[windninja.options]`
    passthroughs then the injected winning keys (`elevation_file`, `output_path`,
    `time_zone`, `num_threads`, `write_ascii_output`, `write_farsite_atm`,
-   `mesh_resolution` = the LCP cell size, `units_mesh_resolution = m`). Runs
+   `mesh_resolution` = the LCP cell size, `units_mesh_resolution = m`, plus —
+   for a `PASTCAST-*` `wx_model_type` — the `start_year…stop_minute` window
+   derived from `[simulation]`). Runs
    `[windninja] command` if set; empty command prints the exact manual command
    and the run pauses at stage 5 until WindNinja's `.atm` exists (re-running the
    same config resumes automatically — existing pairs are reused). `enable=false`
@@ -394,9 +396,10 @@ a partial/network failure):
 
 Notes:
 - The `.wxs` rows, `.atm` rows, and burn periods are all on the fire-local
-  STANDARD clock (the repo's documented timing contract); FARSITE burn-period
-  entries are per-day `M D HHMM HHMM` — the config's `M D HHMM` end is written
-  as an HHMM on the start's day, so span a night with one entry per day.
+  STANDARD clock (the repo's documented timing contract). `[simulation]
+  burn_periods` are written in **UTC** (`YYYY-MM-DDTHH:MM` instants) and
+  converted internally to FARSITE per-day `M D HHMM HHMM` entries — a period
+  spanning a local midnight becomes one entry per local day.
 - All paths written into the WindNinja cfg / inputs / command files are absolute
   (`Path.resolve()`), so they are native `C:\...` paths on Windows and
   `Z:\`-style under Wine on Linux.

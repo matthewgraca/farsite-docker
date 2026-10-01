@@ -122,7 +122,8 @@ def test_offline_assembly_end_to_end(tmp_path):
     run_root = build_scratch_run(tmp_path)
     cfg = write_config(tmp_path, "offline.toml",
                        offline_config(tmp_path, run_root=run_root,
-                                      burn_periods=[["1 6 1600", "1 6 2059"]],
+                                      burn_periods=[["2025-01-06T18:00Z",
+                                                     "2025-01-06T22:00Z"]],
                                       fuel_overrides={122: "1 2 3 4 5 6"}))
     rc, out = run_main(["--config", str(cfg)])
     assert rc == 0
@@ -149,14 +150,31 @@ def test_offline_assembly_end_to_end(tmp_path):
     assert f"FUEL_MOISTURES_DATA: {FUEL_MODEL_COUNT}" in text
     assert "0 6 7 8 60 90 16" in text
     assert "122 1 2 3 4 5 6" in text                     # [farsite.fuel_moistures]
-    # burn period rendered in FARSITE's per-day "M D HHMM HHMM" format
+    # UTC burn period (18:00-22:00Z, std -8h) -> local per-day "M D HHMM HHMM"
     assert "FARSITE_BURN_PERIODS: 1" in text
-    assert "1 6 1600 2059" in text
+    assert "1 6 1000 1400" in text
 
     # command file: single line, 6 fields, 2nd field = abs inputs path
     line = cmdfile.read_text().strip().split()
     assert len(line) == 6
     assert line[1] == str(inputs.resolve())
+
+
+def test_burn_period_utc_to_local_splits_across_local_midnight(tmp_path):
+    """A UTC burn window spanning a local midnight becomes one FARSITE per-day
+    'M D HHMM HHMM' entry per local day."""
+    run_root = build_scratch_run(tmp_path)
+    cfg = write_config(tmp_path, "midnight.toml",
+                       offline_config(tmp_path, run_root=run_root,
+                                      burn_periods=[["2025-01-07T06:00Z",
+                                                     "2025-01-07T10:00Z"]]))
+    rc, _ = run_main(["--config", str(cfg)])
+    assert rc == 0
+    text = (tmp_path / "out" / "palisades-FarsiteInputs.txt").read_text()
+    # 06:00Z..10:00Z with std -8h == local Jan 6 22:00 .. Jan 7 02:00
+    assert "FARSITE_BURN_PERIODS: 2" in text
+    assert "1 6 2200 2400" in text
+    assert "1 7 0000 0200" in text
 
 
 def test_farsite_disabled_skips_assembly_and_run(tmp_path):

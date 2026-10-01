@@ -299,6 +299,42 @@ def ftime(dt):
     return f"{dt.month} {dt.day} {dt.hour:02d}{dt.minute:02d}"
 
 
+def _burn_periods_local(periods, std_off):
+    """User UTC burn periods -> FARSITE per-day local "M D HHMM HHMM" lines.
+
+    Each period is ["%Y-%m-%dT%H:%M"(,Z)] UTC instants — the same grammar as
+    [simulation] start/end. Periods are converted to the fire-local STANDARD
+    clock and split per local calendar day, because FARSITE burn periods are
+    per-day "M D HHMM HHMM": a UTC period spanning a local midnight yields one
+    entry per local day, each clamped to the day's bounds. A period ending
+    exactly at local midnight is written as 2400 on the previous day.
+    """
+    lines = []
+    for period in periods:
+        if not (isinstance(period, list) and len(period) == 2):
+            die(f"simulation.burn_periods entries must be [start, end] UTC "
+                f"instants, got {period!r}")
+        s, e = parse_utc(str(period[0])), parse_utc(str(period[1]))
+        if e < s:
+            die(f"simulation burn period end {e:%Y-%m-%dT%H:%M}Z before start "
+                f"{s:%Y-%m-%dT%H:%M}Z")
+        ls, le = s + std_off, e + std_off
+        day = ls.date()
+        while day <= le.date():
+            day_start = datetime(day.year, day.month, day.day)
+            day_end = day_start + timedelta(days=1)
+            start_d, end_d = max(ls, day_start), min(le, day_end)
+            if end_d > start_d:
+                start_min = start_d.hour * 100 + start_d.minute
+                # a segment clamped to the full local day ends at midnight ->
+                # FARSITE reads that as 2400 on the current day
+                end_min = 2400 if end_d == day_end \
+                    else end_d.hour * 100 + end_d.minute
+                lines.append(f"{day.month} {day.day} {start_min:04d} {end_min:04d}")
+            day += timedelta(days=1)
+    return lines
+
+
 def find_wn_atm(run_root):
     """The single native WindNinja '*.atm' directly under run_root."""
     atms = sorted(respath(run_root).glob("*.atm"))
@@ -697,6 +733,23 @@ class Runner:
             f"mesh_resolution = {cell_m:g}",
             "units_mesh_resolution = m",
         ]
+        # WindNinja >= 4.0 PASTCAST runs need a start/stop window (not
+        # forecast_duration); derive it from [simulation] on the injected
+        # fire-local clock so the user needn't duplicate the window. Standalone
+        # (non-PASTCAST) models keep forecast_duration/user options.
+        wx_type = str(opts.get("wx_model_type", ""))
+        if wx_type.startswith("PASTCAST-") and not any(
+                k in opts for k in ("start_year", "start_month", "start_day",
+                                    "start_hour", "start_minute")):
+            ls, le = self.local_start, self.local_end
+            lines += [
+                f"start_year = {ls.year}", f"start_month = {ls.month}",
+                f"start_day = {ls.day}", f"start_hour = {ls.hour}",
+                f"start_minute = {ls.minute}",
+                f"stop_year = {le.year}", f"stop_month = {le.month}",
+                f"stop_day = {le.day}", f"stop_hour = {le.hour}",
+                f"stop_minute = {le.minute}",
+            ]
         cfg_path = self.wind_root / f"{self.slug}.cfg"
         self.write_file(cfg_path, "\n".join(lines) + "\n", what="WindNinja cfg")
         command = str(wn["command"]).strip()
@@ -826,19 +879,9 @@ class Runner:
         ]
         periods = sim.get("burn_periods") or []
         if periods:
-            lines.append(f"FARSITE_BURN_PERIODS: {len(periods)}")
-            for period in periods:
-                if not (isinstance(period, list) and len(period) == 2):
-                    die(f"simulation.burn_periods entries must be [start, end] "
-                        f"pairs of 'M D HHMM', got {period!r}")
-                start_tokens = str(period[0]).split()
-                end_tokens = str(period[1]).split()
-                if len(start_tokens) != 3 or len(end_tokens) != 3:
-                    die(f"simulation.burn_periods entries must be 'M D HHMM', "
-                        f"got {period!r}")
-                # FARSITE format is "M D HHMM HHMM" (the end carries no day -
-                # a period is per-day; span a night with multiple entries).
-                lines.append(f"{period[0]} {end_tokens[2]}")
+            local_periods = _burn_periods_local(periods, self.std_off)
+            lines.append(f"FARSITE_BURN_PERIODS: {len(local_periods)}")
+            lines.extend(local_periods)
         lines += [
             f"FARSITE_START_TIME: {ftime(self.local_start)}",
             f"FARSITE_END_TIME: {ftime(self.local_end)}",
