@@ -142,7 +142,8 @@ Example: `burn_periods = [["2025-01-07T00:00Z", "2025-01-07T05:00Z"]]` (== local
 | `enable` | bool | `true` | `false` ⇒ skip the binary entirely; the `.atm` delivery is still checked by the atmosphere stage |
 | `command` | str | `""` | native `WindNinja_cli.exe` path (quoted if spaces) or `wine C:/...` on Linux/WSL. Empty ⇒ write `<run>/windroot/<slug>.cfg` + print the manual command; the run pauses until the `.atm` exists (re-run the same config to resume) |
 | `run_root` | dir | `<run_dir>/windroot` | dir of per-hour `_vel.asc`/`_ang.asc` pairs + the single `.atm`; point this at a dir with existing pairs (e.g. `FireBehaviorModels/atm`) to reuse committed grids and skip the CLI entirely |
-| `threads` | int | `4` | `num_threads` for the CLI — **also the ceiling on how many hourly runs solve concurrently**. Each run is one thread and holds one full-domain mesh (mesh = LCP cell size), so peak RAM ≈ `min(hours, threads)` × per-mesh. More threads = more concurrent meshes = more memory, not just speed |
+| `threads` | int | `4` | `num_threads` for the CLI — **also the ceiling on how many hourly runs solve concurrently**. Each run is one thread and holds one full-domain mesh (mesh = effective wind resolution), so peak RAM ≈ `min(hours, threads)` × per-mesh. More threads = more concurrent meshes = more memory, not just speed |
+| `mesh_m` | float | `None` | **optional WindNinja mesh override (m)**. `None` ⇒ mesh = LCP cell size and the native `.atm` sits on the LCP grid (no regrid). Set ⇒ WindNinja solves at `mesh_m` and ships its native `.atm`; **FARSITE regrids/interpolates the winds onto the landscape internally**. Prefer `mesh_m` ≈ 2–3× of `[farsite] distance_res`/`perimeter_res` (defaults 30/60 m ⇒ ≈ 120–180 m) and keep WindNinja cells ≲ 200k — per the [OW FlamMap/FARSITE Wind Vectors help](https://owfflammaphelp62.firenet.gov/FileTypes/Wind_Vectors.htm#FARSITE_Wind_Ninja_Options) |
 | `options` | table | `{}` | **passthrough** → every other WindNinja cfg key (see `WindNinja-CLI.md`) |
 
 `[windninja.options]` is the only free-form table — keys are rendered as
@@ -162,13 +163,16 @@ diurnal_winds = "true"
 
 **Injected and always-win:** `elevation_file`, `output_path`, `time_zone`,
 `num_threads`, `write_ascii_output = true`, `write_farsite_atm = true`,
-`mesh_resolution` (= LCP cell size), `units_mesh_resolution = m`, and — for a
-`PASTCAST-*` `wx_model_type` — the **`start_year…stop_minute` window derived
-from `[simulation] start/end`** on the injected `time_zone` clock (so the user
-never re-types the window; WindNinja 4.0 rejects `forecast_duration` for
-PASTCAST). `start_*`/`stop_*` under `[windninja.options]` still override, e.g.
-for standalone CLI runs. `mesh_resolution` is forced to the LCP cell size so
-WindNinja's native `.atm` grids land on the LCP grid, which FARSITE requires.
+`mesh_resolution` (= `[windninja] mesh_m` when set, else the LCP cell size),
+`units_mesh_resolution = m`, and — for a `PASTCAST-*` `wx_model_type` — the
+**`start_year…stop_minute` window derived from `[simulation] start/end`** on the
+injected `time_zone` clock (so the user never re-types the window; WindNinja 4.0
+rejects `forecast_duration` for PASTCAST). `mesh_resolution` defaults to the LCP
+cell size so the native `.atm` grids sit on the LCP grid; when `mesh_m` is set,
+the grid differs from the LCP and **FARSITE regrids it internally**. (If you
+ever prefer deterministic up-front resampling instead of trusting FARSITE's
+regrid, `runroot_to_atm` does exactly that for a run-root of pairs —
+documented as the escape hatch, not wired as a config toggle.)
 
 **WindNinja 4.0 notes** (full detail in `WindNinja-CLI.md` §4.1):
 - `PASTCAST-GCP-HRRR-CONUS-3-KM` downloads archived HRRR from

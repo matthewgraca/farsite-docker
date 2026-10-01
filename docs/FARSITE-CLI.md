@@ -204,9 +204,17 @@ WIND_DATA:     Mth Day Hour Speed Direction CloudCover      (ascending, hourly p
 
 Two mutually exclusive routes (plus `RAWS` for the scalar hourly wind):
 
-1. **External grids → `FARSITE_ATM_FILE:`** — point at a `.atm` manifest; every
-   referenced speed/direction grid must sit in the **same directory**, be
-   ASCII or GeoTIFF, and match the LCP **cell size, extent, datum, projection**.
+1. **External grids → `FARSITE_ATM_FILE:`** — point at a `.atm` manifest;
+   referenced speed/direction grids sit in the **same directory** as the
+   `.atm` and are ASCII or GeoTIFF. They *should* match the LCP **cell size /
+   extent / datum / projection**, but FARSITE **regrids/interpolates
+   mismatched winds onto the landscape internally** — the repo pipeline relies
+   on this when `[windninja] mesh_m` sets a wind grid different from the LCP.
+   Pick that resolution ≈ 2–3× of `distance_res`/`perimeter_res` and keep
+   WindNinja cells ≲ 200k (see the [OW FlamMap/FARSITE Wind Vectors
+   help](https://owfflammaphelp62.firenet.gov/FileTypes/Wind_Vectors.htm#FARSITE_Wind_Ninja_Options)).
+   `runroot_to_atm` still provides deterministic resampling when you want
+   matched grids up front.
    Example `.atm` (from `FireBehaviorModels/atm/pal.atm`):
    ```
    WINDS

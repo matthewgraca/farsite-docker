@@ -365,9 +365,11 @@ a partial/network failure):
 4. **windninja** — writes `<run>/windroot/<slug>.cfg`: user `[windninja.options]`
    passthroughs then the injected winning keys (`elevation_file`, `output_path`,
    `time_zone`, `num_threads`, `write_ascii_output`, `write_farsite_atm`,
-   `mesh_resolution` = the LCP cell size, `units_mesh_resolution = m`, plus —
-   for a `PASTCAST-*` `wx_model_type` — the `start_year…stop_minute` window
-   derived from `[simulation]`). Runs
+   `mesh_resolution` = `[windninja] mesh_m` when set, else the LCP cell size,
+   `units_mesh_resolution = m`, plus — for a `PASTCAST-*` `wx_model_type` — the
+   `start_year…stop_minute` window derived from `[simulation]`). `[windninja]
+   mesh_m` lets WindNinja solve on a different grid than the LCP; the native
+   `.atm` flows to FARSITE, which regrids the winds internally. Runs
    `[windninja] command` if set; empty command prints the exact manual command
    and the run pauses at stage 5 until WindNinja's `.atm` exists (re-running the
    same config resumes automatically — existing pairs are reused). `enable=false`

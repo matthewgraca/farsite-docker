@@ -52,7 +52,7 @@ _DEFAULTS = {
     "simulation": {"start": None, "end": None, "row_timezone": None,
                    "lead_days": 0, "burn_periods": []},
     "windninja": {"enable": True, "command": "", "run_root": None, "threads": 4,
-                  "options": {}},
+                  "options": {}, "mesh_m": None},
     "weather": {"enable": True, "wxs": None, "cache_dir": None, "threads": 8,
                 "elevation_tol_ft": 500},
     "farsite": {"enable": True, "run": True, "command": "", "cwd": None,
@@ -73,7 +73,7 @@ _SECTION_KEYS = {
     "landscape": ("enable", "lcp", "bbox", "mapzone", "email", "version",
                   "fuel_model", "resolution", "dem_out"),
     "simulation": ("start", "end", "row_timezone", "lead_days", "burn_periods"),
-    "windninja": ("enable", "command", "run_root", "threads", "options"),
+    "windninja": ("enable", "command", "run_root", "threads", "options", "mesh_m"),
     "weather": ("enable", "wxs", "cache_dir", "threads", "elevation_tol_ft"),
     "farsite": ("enable", "run", "command", "cwd", "barrier", "out_base",
                 "outputs_type", "timestep", "distance_res", "perimeter_res",
@@ -722,6 +722,8 @@ class Runner:
                 "(e.g. initialization_method = \"wxModelInitialization\")")
         cell_m = lcp_cell_m(self.cfg, self.lcp) if self.lcp.is_file() \
             else float(self.cfg["landscape"].get("resolution", 30))
+        mesh = wn.get("mesh_m")
+        eff_mesh = cell_m if mesh is None else float(mesh)
         lines = [f"{k} = {_render_wn_value(k, v)}" for k, v in opts.items()]
         lines += [
             f"elevation_file = {self.dem.resolve()}",
@@ -730,9 +732,13 @@ class Runner:
             f"num_threads = {wn['threads']}",
             "write_ascii_output = true",
             "write_farsite_atm = true",
-            f"mesh_resolution = {cell_m:g}",
+            f"mesh_resolution = {eff_mesh:g}",
             "units_mesh_resolution = m",
         ]
+        if mesh is not None:
+            print(f"  wind mesh override: mesh_resolution = {eff_mesh:g} m "
+                  f"(LCP cell {cell_m:g} m); FARSITE regrids the winds onto "
+                  f"the landscape internally")
         # WindNinja >= 4.0 PASTCAST runs need a start/stop window (not
         # forecast_duration); derive it from [simulation] on the injected
         # fire-local clock so the user needn't duplicate the window. Standalone

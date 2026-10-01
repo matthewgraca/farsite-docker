@@ -67,7 +67,15 @@ command = ""                  # e.g. "wine C:/.../WindNinja_cli.exe" (Linux/WSL)
 # run_root = "…/windroot"      # dir of per-hour _vel.asc/_ang.asc pairs + the
                               #   .atm + the .cfg; default <run>/windroot
 threads = 1                   # num_threads for the WindNinja CLI. Individual solvers are
-                              #   already parallelized, so keep this low an monitor your memory
+                              #   already parallelized, so keep this low and monitor your memory
+# mesh_m = 120                # optional WindNinja mesh override (m). None (default) =>
+                              #   mesh = LCP cell size (native .atm on the LCP grid).
+                              #   When set, WindNinja solves at mesh_m and ships its native
+                              #   .atm; FARSITE regrids the winds onto the landscape
+                              #   internally. Prefer ~2-3x of [farsite] distance_res /
+                              #   perimeter_res (defaults 30/60 m => ~120-180 m) and keep
+                              #   WindNinja cells < ~200k (OW FlamMap/FARSITE help: Wind
+                              #   Vectors).
 [windninja.options]           # passthrough of WindNinja cfg keys (full CLI vocabulary)
 initialization_method = "wxModelInitialization"   # REQUIRED
 wx_model_type = "PASTCAST-GCP-HRRR-CONUS-3-KM"    # wx-model source (or forecast_filename)

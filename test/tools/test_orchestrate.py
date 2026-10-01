@@ -197,6 +197,39 @@ def test_farsite_disabled_skips_assembly_and_run(tmp_path):
     assert "farsite disabled" in out
 
 
+def test_windninja_mesh_m_override_injects_mesh_resolution(tmp_path):
+    """[windninja] mesh_m lets WN solve on a different grid than the LCP; the
+    native .atm flows to FARSITE, which regrids it internally - no resample
+    stage, and the LCP cell size stays the default when mesh_m is unset."""
+    run_root = build_scratch_run(tmp_path, n_atm=0, grids=False)  # no pairs -> write cfg
+    base = {
+        "landscape": {"enable": False, "lcp": str(DATA / "palisades.tif")},
+        "fire": {"enable": False, "fire_json": str(DATA / "fire.json")},
+        "simulation": {"start": "2025-01-06T08:00Z", "end": "2025-01-06T10:00Z",
+                       "row_timezone": "America/Los_Angeles", "lead_days": 0},
+        "windninja": {"enable": True, "run_root": str(run_root),
+                      "options": {"initialization_method": "wxModelInitialization",
+                                  "wx_model_type": "PASTCAST-GCP-HRRR-CONUS-3-KM"}},
+        "weather": {"enable": False, "wxs": str(DATA / "palisades-hrrr.wxs")},
+        "farsite": {"enable": False, "run": False},
+        "output": {"run_dir": str(tmp_path / "out")},
+    }
+    for label, mesh_m in (("coarse", 120.0), ("finer-than-lcp", 10.0)):
+        cfg = dict(base)
+        cfg["windninja"] = dict(base["windninja"], mesh_m=mesh_m)
+        rc, out = run_main(["--config", str(write_config(
+            tmp_path, f"mesh{label}.toml", cfg)), "--dry-run"])
+        assert rc == 0
+        assert f"mesh_resolution = {mesh_m:g}" in out
+        # trust contract: no resample stage is planned for a coarse wind
+        assert "winds-resampled" not in out and "runroot_to_atm" not in out
+    # default (mesh_m unset) still anchors on the LCP cell size
+    rc, out = run_main(["--config", str(write_config(
+        tmp_path, "meshdefault.toml", base)), "--dry-run"])
+    assert rc == 0
+    assert "mesh_resolution = 30" in out
+
+
 # ---------------------------------------------------------------------------
 # config.example.toml dry-run: plan printed, NOTHING touched
 # ---------------------------------------------------------------------------
