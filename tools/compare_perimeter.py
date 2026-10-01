@@ -169,6 +169,25 @@ def select_final_perimeters(shp_path):
     return geoms, meta
 
 
+def load_ignition_point(shp_path):
+    """The single-point FARSITE ignition seed (the file FARSITE ignites from).
+
+    Returns (shapely.geometry.Point, pyproj.CRS); the .prj companion is
+    required, same as the perimeter readers. This is the post-pipeline seed -
+    if the burnability preflight nudged it, this reflects the coordinate
+    FARSITE actually ignited at.
+    """
+    reader = shapefile.Reader(str(shp_path))
+    if reader.numRecords == 0:
+        die(f"ignition shapefile has no records: {shp_path}")
+    shp = reader.shape(0)
+    if shp.shapeType not in (1, 11):       # POINT, POINTZ
+        die(f"expected a point ignition shapefile, got SHPT {shp.shapeType} "
+            f"for {shp_path}")
+    x, y = shp.points[0]
+    return Point(x, y), read_shapefile_crs(shp_path)
+
+
 # ---------------------------------------------------------------------------
 # CRS handling and metrics
 # ---------------------------------------------------------------------------
@@ -327,17 +346,19 @@ def _signed_area(ring):
     return 0.5 * s
 
 
-def plot_overlay(result, pair, basemap, out_path, title):
+def plot_overlay(result, pair, basemap, out_path, title, ignition=None):
     """Overlay the two footprints on the basemap (or a plain frame) as a PNG.
 
     pair = (reference_union_geom, simulated_union_geom) in EPSG:3857, so the
     axis is 3857-native and mosaicked tiles need no reprojection. basemap is a
     (mosaic, extent) as returned by fetch_basemap(), or None for a plain frame.
+    ignition, when given, is the seed point in EPSG:3857 drawn as a star.
     matplotlib is imported lazily here (tools convention).
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
     from matplotlib.path import Path as MplPath
     from matplotlib.patches import PathPatch, Patch
     from matplotlib.ticker import FuncFormatter
@@ -390,10 +411,17 @@ def plot_overlay(result, pair, basemap, out_path, title):
          linewidth=1.2, zorder=1)
     draw(ax, sim_geom, ox, oy, facecolor="cyan", edgecolor="black",
          linewidth=1.2, zorder=2, alpha=0.5)
-    ax.legend(handles=[
+    legend_handles = [
         Patch(facecolor="#d9d9d9", edgecolor="red", label="CalFire perimeter"),
         Patch(facecolor="cyan", edgecolor="black", alpha=0.5, label="FARSITE"),
-    ], loc="best", framealpha=0.9)
+    ]
+    if ignition is not None:
+        ax.plot(ignition.x - ox, ignition.y - oy, marker="*", markersize=18,
+                color="magenta", markeredgecolor="black", zorder=4)
+        legend_handles.append(Line2D([0], [0], marker="*", ls="none",
+                                     color="magenta", mec="black", ms=16,
+                                     label="Ignition point"))
+    ax.legend(handles=legend_handles, loc="best", framealpha=0.9)
     ax.set_title(title)
     fig.savefig(out_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
@@ -420,6 +448,9 @@ def build_parser():
     p.add_argument("--simulated", metavar="SHP", default=None,
                    help="simulated (FARSITE) perimeter shapefile "
                         "(requires --reference)")
+    p.add_argument("--ignition", metavar="SHP", default=None,
+                   help="ignition point shapefile to star on the overlay "
+                        "(default <run-dir>/ignition.shp)")
     p.add_argument("--metric", default="iou",
                    help="comma-list of metrics to print (valid: "
                         f"{'/'.join(METRICS)})")
@@ -469,6 +500,15 @@ def main(argv=None):
     else:
         sim, ref = Path(args.simulated), Path(args.reference)
 
+    if args.ignition:
+        ign_path = Path(args.ignition)
+        if not ign_path.is_file():
+            die(f"ignition shapefile not found: {ign_path}")
+    elif args.run_dir:
+        ign_path = run / "ignition.shp"
+    else:
+        ign_path = None
+
     metrics = [m.strip().lower() for m in args.metric.split(",") if m.strip()]
     if not metrics:
         die("--metric cannot be empty")
@@ -508,6 +548,16 @@ def main(argv=None):
         print(f"json: {args.json}")
 
     if args.plot:
+        ign_pt = None
+        if ign_path is not None and ign_path.is_file():
+            ign_pt, ign_crs = load_ignition_point(ign_path)
+            ign_pt = to_crs([ign_pt], ign_crs,
+                            pyproj.CRS.from_epsg(3857))[0]
+            print(f"ignition: {ign_path}")
+        else:
+            print("ignition: none ("
+                  + ("no ignition.shp in run dir" if args.run_dir
+                     else "not provided (--ignition)") + ")")
         merc = pyproj.CRS.from_epsg(3857)
         pair = (unary_union(to_crs(ref_fp["geoms"], ref_fp["crs"], merc)),
                 unary_union(to_crs(sim_fp["geoms"], sim_fp["crs"], merc)))
@@ -522,7 +572,7 @@ def main(argv=None):
                          else [args.basemap])
             basemap = fetch_basemap(providers, bounds, zoom, args.max_tiles)
         title = f"{fire_name} — IoU = {result['iou']:.3f}"
-        plot_overlay(result, pair, basemap, args.plot, title)
+        plot_overlay(result, pair, basemap, args.plot, title, ignition=ign_pt)
         if basemap is None:
             if args.basemap == "none":
                 print("basemap: none (--basemap none)")

@@ -10,9 +10,10 @@ tmp_path, mirroring test_runroot_to_atm.py.
 import pyproj
 import pytest
 import shapefile
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 
-from compare_perimeter import (compare, compute, load_polygons,
+from compare_perimeter import (compare, compute, load_ignition_point,
+                               load_polygons, plot_overlay,
                                select_final_perimeters)
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -138,3 +139,34 @@ def test_interior_ring_becomes_hole(tmp_path):
     assert len(g.interiors) == 1
     assert g.area == pytest.approx(1600.0 - 400.0)
     assert Polygon(g.interiors[0]).area == pytest.approx(400.0)
+
+
+def _write_point(base_path, crs, x, y):
+    """A single-point POINT shapefile + .prj (ignition-seed pattern)."""
+    base_path.parent.mkdir(parents=True, exist_ok=True)
+    w = shapefile.Writer(str(base_path), shapeType=shapefile.POINT)
+    w.field("NAME", "C", 40)
+    w.record("seed")
+    w.point(x, y)
+    w.close()
+    base_path.with_suffix(".prj").write_text(crs.to_wkt())
+    return base_path
+
+
+def test_load_ignition_point(tmp_path):
+    crs = pyproj.CRS.from_epsg(32611)
+    p = _write_point(tmp_path / "ignition.shp", crs, 353000.0, 3772000.0)
+    pt, got = load_ignition_point(p)
+    assert isinstance(pt, Point)
+    assert pt.coords[0] == pytest.approx((353000.0, 3772000.0))
+    assert got.to_epsg() == 32611
+
+
+def test_plot_overlay_with_ignition_marker(tmp_path):
+    ref = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    sim = Polygon([(2, 2), (12, 2), (12, 12), (2, 12)])
+    out = tmp_path / "overlay.png"
+    plot_overlay({"iou": 0.25}, (ref, sim), None, out,
+                 "PALISADES — IoU = 0.250", ignition=Point(5, 5))
+    assert out.is_file()
+    assert out.stat().st_size > 0

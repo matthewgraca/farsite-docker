@@ -435,6 +435,11 @@ lower-cased fire name with spaces → `-`), or explicit `--reference` +
 `--simulated`. `--metric` is a comma-list (valid: `iou`); `--json` dumps the
 machine-readable `compare()` dict; `--plot` writes the overlay PNG.
 
+`--plot` marks the FARSITE **ignition seed** as a magenta star: under
+`--run-dir` it auto-reads `<run>/ignition.shp` (the post-preflight seed FARSITE
+actually ignited from — the point is reprojected into the plot frame with the
+footprints), or point `--ignition <shp>` at one explicitly.
+
 **Final-perimeter selection.** FARSITE's `_Perimeters.shp` holds one record per
 growth timestep; the final footprint is the record(s) with the max elapsed
 field (`Elapsed_Mi`/`Elapsed_Minutes`/`*elapsed*`, else any `time`/`simtime`
