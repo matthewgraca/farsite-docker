@@ -1,10 +1,15 @@
-"""Offline tests for hrrr_to_wxs.scan_cache (once-over cache validation).
+"""Offline tests for hrrr_to_wxs (cache validation + Phase-A decode concurrency).
 
 A window with several corrupt subsets must report ALL of them in one message
 (delete all the listed files, re-run once) instead of Phase B dying one file at
-a time.
+a time. Phase-A decode is also serialized under a process-wide lock so
+concurrent download threads never hit the native eccodes decoder at once.
 """
 
+import sys
+import threading
+import time
+import types
 from datetime import datetime
 
 import hrrr_to_wxs
@@ -80,3 +85,48 @@ def test_scan_flags_missing_variable(monkeypatch, tmp_path):
     assert good is None
     assert len(problems) == 1
     assert ("missing " + ", ".join(SHORTS[1:])) in problems[0]
+
+
+def test_subset_ok_decode_is_serialized_across_threads(monkeypatch, tmp_path):
+    """Phase-A `_subset_ok` decodes under one process-wide lock: concurrent
+    workers never run the cfgrib/eccodes decode at the same time (the native
+    decoder hard-crashes a multi-thread Phase A on some Windows builds with
+    STATUS_STACK_BUFFER_OVERRUN). Downloads stay parallel; only decode is
+    serialized."""
+    hs = hours("2025010400")
+    write(tmp_path, hs[0])                       # content irrelevant (cfgrib faked)
+    cf = tmp_path / f"hrrr_{hs[0]:%Y%m%d%H}.grib2"
+
+    active = 0
+    max_active = 0
+    guard = threading.Lock()
+
+    def fake_open_datasets(*_a, **_k):
+        nonlocal active, max_active
+        with guard:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with guard:
+            active -= 1
+        return [types.SimpleNamespace(data_vars=set())]   # no wanted vars -> False
+
+    monkeypatch.setitem(
+        sys.modules, "cfgrib",
+        types.SimpleNamespace(open_datasets=fake_open_datasets))
+
+    errors = []
+
+    def worker():
+        try:
+            hrrr_to_wxs._subset_ok(cf)
+        except Exception as e:                  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    assert max_active == 1                       # decode never overlapped

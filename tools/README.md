@@ -154,6 +154,9 @@ Notes:
   gribs) across the **whole window** are reported in a single pass — a run with
   several bad hours lists them all, so you delete every listed `.grib2` and
   re-run once instead of fixing them one file at a time.
+- Phase-A **decodes are serialized** under a process-wide lock (the native
+  eccodes decoder hard-crashes a multi-thread Phase A on some Windows builds
+  with `0xC0000409`); the urllib **downloads stay parallel**.
 - `--start/--end` are **UTC instants**, never re-read as wall time; the
   fire-local clock only affects row labels.
 - The HRRR grid is ~3 km; an anchor shift inside a cell can move the sampled

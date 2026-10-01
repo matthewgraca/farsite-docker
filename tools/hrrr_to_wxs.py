@@ -35,6 +35,7 @@ import math
 import re
 import shutil
 import sys
+import threading
 import time
 import warnings
 from tqdm import tqdm
@@ -209,6 +210,14 @@ def _hours_inclusive(start_utc, end_utc):
 _MAX_FETCH_RETRIES = 3
 _WANTED_SHORTS = {s for s, _, _ in WANTED}
 
+# Windows-native eccodes decode is unsafe under concurrent threads in some
+# builds (a 4-thread Phase A burst hard-crashes the process at 0/125 hrs with
+# STATUS_STACK_BUFFER_OVERRUN 0xC0000409, while threads=1 is stable). One
+# process-wide lock serializes ONLY the decode; the urllib downloads stay
+# parallel. Phase B/scan_cache are already single-threaded, so this single
+# guard covers the only concurrent decode path.
+_DECODE_LOCK = threading.Lock()
+
 
 def _subset_ok(cf):
     """True if the cached subset decodes all six wanted shortNames.
@@ -217,18 +226,24 @@ def _subset_ok(cf):
     when the server closes the connection early - a truncated file can land in
     the cache looking non-empty. This check surfaces that immediately so fetch()
     can delete and retry, instead of Phase B failing on a missing variable.
+
+    The decode runs under the process-wide _DECODE_LOCK: concurrent threads
+    doing cfgrib/eccodes work at once can hard-crash the process on some
+    Windows builds (0xC0000409), so Phase A serializes the decode while the
+    downloads underneath remain parallel.
     """
     import cfgrib
     import xarray as xr
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", (FutureWarning, UserWarning))
-            dss = cfgrib.open_datasets(str(cf), backend_kwargs={"indexpath": ""})
-            names = (set(dss[0].data_vars) if len(dss) == 1
-                     else set(xr.merge(dss, compat="override", join="override").data_vars))
-        return _WANTED_SHORTS <= names
-    except Exception:  # noqa: BLE001 - truncated/unreadable file
-        return False
+    with _DECODE_LOCK:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", (FutureWarning, UserWarning))
+                dss = cfgrib.open_datasets(str(cf), backend_kwargs={"indexpath": ""})
+                names = (set(dss[0].data_vars) if len(dss) == 1
+                         else set(xr.merge(dss, compat="override", join="override").data_vars))
+            return _WANTED_SHORTS <= names
+        except Exception:  # noqa: BLE001 - truncated/unreadable file
+            return False
 
 
 def scan_cache(utc_hours, cache_dir):
