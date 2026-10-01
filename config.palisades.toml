@@ -7,7 +7,7 @@ year = 2025                   # fire YEAR_ filter; REQUIRED (pins the run dir)
 # lon = -118.55112            #   the IRWIN/WFIGS lookup
 # crs = "EPSG:32611"          # optional shapefile CRS; default = LCP CRS, so the
                               #   ignition seed matches FARSITE's landscape
-fire_json = null 	      # output fire.json (default <run_dir>/fire.json), or
+# fire_json = "…/fire.json"  # output fire.json (default <run_dir>/fire.json), or
 	      		      #   required input path when enable=false
 
 [landscape]
@@ -34,14 +34,12 @@ lead_days = 3                 # conditioning DAYS of meteorology prepended befor
 burn_periods = [
 	["2025-01-07T17:00", "2025-01-08T03:00"],
 	["2025-01-08T17:00", "2025-01-09T03:00"],
-	["2025-01-09T17:00", "2025-01-010T03:00"],
+	["2025-01-09T17:00", "2025-01-10T03:00"],
 	["2025-01-10T17:00", "2025-01-11T03:00"]
-]   			      # FARSITE local-clock burn windows as
-                              #   [start, end] pairs of "M D HHMM". The END is written
-                              #   as an HHMM on the START's day (FARSITE burn periods
-                              #   are per-day 'M D HHMM HHMM'); span a night with one
-                              #   entry per day. Local = fire-local STANDARD clock,
-                              #   same as the .wxs/.atm row stamps.
+]   			      # UTC whole-hour burn windows [start, end] instants; converted internally to
+                              #   FARSITE per-day 'M D HHMM HHMM' on the fire-local
+                              #   STANDARD clock - each night here = local 09:00..19:00
+                              #   America/Los_Angeles.
 
 [windninja]
 enable = true		      # false => reuse existing grids in run_root (no cfg/run)
@@ -69,7 +67,7 @@ diurnal_winds = "true"
 
 [weather]
 enable = true 		    # false => reuse an existing wxs ([weather] wxs required)
-wxs = null                  # reuse path when enable=false
+# wxs = "…/<slug>-hrrr.wxs"   # reuse path when enable=false
 # wxs = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\SampleData\\2025_palisades\\palisades-hrrr.wxs"
 # cache_dir = "…/.cache/hrrr"  # default FireBehaviorModels/.cache/hrrr
 threads = 4                   # Phase-A download threads
