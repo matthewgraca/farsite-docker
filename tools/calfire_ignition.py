@@ -34,6 +34,7 @@ GDAL/FlamMap/FARSITE identify the shapefile CRS.
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -160,12 +161,34 @@ def list_fires(fire_name, year=None):
     return fires
 
 
-def select_fire(cands, fire_name, year, index):
+def select_fire(cands, fire_name, year, index, inc=None):
     """Index/ambiguity resolution: exactly one candidate wins; otherwise
-    --index (0-based) is required and bounds-checked."""
+    --index (0-based) is required and bounds-checked, or --inc selects by the
+    FRAP incident number (UNIT INC or INC)."""
     if not cands:
         where = f"'{fire_name}'" + (f" in {year}" if year is not None else "")
         die(f"no CAL FIRE fire named {where} in FRAP")
+
+    def _tok(s):
+        return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+    if inc is not None:
+        want = _tok(inc)
+        hit = [c for c in cands
+               if _tok(f"{c['unit_id']} {c['inc_num']}") == want
+               or (c['inc_num'] and _tok(c['inc_num']) == want)]
+        if len(hit) != 1:
+            def _dt(v):
+                return v.strftime("%Y-%m-%dT%H:%MZ") if v else "-"
+            print(f"--inc '{inc}' matched {len(hit)} of {len(cands)} candidates; "
+                  f"pass --index to disambiguate:")
+            for i, c in enumerate(cands):
+                print(f"  [{i}] {c['fire_name']} {c['year']}  "
+                      f"alarm={_dt(c['alarm_date'])}  acres={c['gis_acres']}  "
+                      f"unit={c['unit_id']}  inc={c['inc_num']}")
+            die(f"--inc required/ambiguous: '{inc}' (pass UNIT INC or --index)")
+        cands = hit
+
     n = len(cands)
     if index is not None:
         if not 0 <= index < n:
@@ -356,6 +379,9 @@ def build_parser():
                    help="fire YEAR_ filter; omit to search the whole FRAP history")
     p.add_argument("--index", type=int, default=None,
                    help="0-based pick when the name matches multiple CAL FIRE records")
+    p.add_argument("--inc", default=None,
+                   help="disambiguate by FRAP incident number, e.g. 'LDF 00000738' "
+                        "(UNIT INC, or INC alone); errors if still ambiguous, use --index")
     p.add_argument("--lat", type=float, default=None,
                    help="manual ignition latitude (WGS84, -90..90); give both "
                         "--lat and --lon to skip the IRWIN lookup")
@@ -385,7 +411,7 @@ def main(argv=None):
         die(f"cannot parse --crs {args.crs}")
 
     rec = select_fire(list_fires(args.fire_name, args.year),
-                      args.fire_name, args.year, args.index)
+                      args.fire_name, args.year, args.index, args.inc)
 
     def _dt(v):
         return v.strftime("%Y-%m-%dT%H:%MZ") if v else "-"

@@ -20,6 +20,8 @@ enable = true                 # false => reuse [fire] fire_json, nothing runs
 name = "Palisades"            # CAL FIRE name (case-insensitive), REQUIRED when enabled
 year = 2025                   # fire YEAR_ filter; REQUIRED (pins the run dir)
 # index = 0                   # optional 0-based disambiguation for repeated names
+# inc = "LDF 00000738"        # optional FRAP incident number (UNIT INC), a robust
+                              #   way to pick which fire when NAME+YEAR repeats
 # lat = 34.06778              # optional manual ignition WGS84; give BOTH to skip
 # lon = -118.55112            #   the IRWIN/WFIGS lookup
 # crs = "EPSG:32611"          # optional shapefile CRS; default = LCP CRS, so the

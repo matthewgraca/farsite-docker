@@ -78,6 +78,7 @@ footprint + `fire.json`.
 | `name` | str | — | CAL FIRE fire name, case-insensitive. **Required** when `enable=true` |
 | `year` | int | — | FRAP `YEAR_` filter; pins the default run dir. **Required** when enabled |
 | `index` | int | — | 0-based pick when `name` matches >1 record in a year |
+| `inc` | str | — | FRAP incident number (`"UNIT INC"` or `INC`) — the robust way to pick when `name`+`year` repeats; falls back to `index` if still ambiguous |
 | `lat`, `lon` | float | — (IRWIN lookup) | manual WGS84 ignition; **give both** to skip the WFIGS lookup (pre-IRWIN fires) |
 | `crs` | str | LCP CRS | output CRS for both shapefiles (any pyproj string, e.g. `EPSG:32611`); default = the LCP's CRS so the seed matches FARSITE's landscape |
 | `fire_json` | path | `<run_dir>/fire.json` | output; **required input** when `enable=false` |

@@ -45,7 +45,7 @@ _NB_FUEL_MODELS = {0} | set(range(91, 100))  # Scott & Burgan NB1-NB9 + model 0
 
 _DEFAULTS = {
     "fire": {"enable": True, "name": None, "year": None, "index": None,
-             "lat": None, "lon": None, "crs": None, "fire_json": None},
+             "inc": None, "lat": None, "lon": None, "crs": None, "fire_json": None},
     "landscape": {"enable": True, "lcp": None, "bbox": None, "mapzone": None,
                   "email": None, "version": "2024", "fuel_model": "fbfm40",
                   "resolution": 30, "dem_out": None,
@@ -70,7 +70,8 @@ _DEFAULTS = {
 TOP_LEVEL = ("fire", "landscape", "simulation", "windninja", "weather",
              "farsite", "output")
 _SECTION_KEYS = {
-    "fire": ("enable", "name", "year", "index", "lat", "lon", "crs", "fire_json"),
+    "fire": ("enable", "name", "year", "index", "inc", "lat", "lon", "crs",
+             "fire_json"),
     "landscape": ("enable", "lcp", "bbox", "mapzone", "email", "version",
                   "fuel_model", "resolution", "dem_out",
                   "bbox_from", "bbox_margin_m"),
@@ -711,6 +712,8 @@ class Runner:
                     "--year", str(fire["year"])]
             if fire.get("index") is not None:
                 argv += ["--index", str(fire["index"])]
+            if fire.get("inc"):
+                argv += ["--inc", str(fire["inc"])]
             if fire.get("lat") is not None and fire.get("lon") is not None:
                 argv += ["--lat", f"{fire['lat']:.6f}", "--lon", f"{fire['lon']:.6f}"]
             if self.cfg["fire"].get("crs"):

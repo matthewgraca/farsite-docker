@@ -65,6 +65,7 @@ python tools/calfire_ignition.py --fire-name <name> [--year YYYY] [options]
 | `--fire-name` | *(required)* | CAL FIRE fire name; matched case-insensitively. |
 | `--year` | *whole FRAP history* | Restrict to one fire `YEAR_`; omit to search all years. |
 | `--index` | *(none)* | 0-based pick when the name matches >1 record (e.g. several "Ranch" fires in a year); required in that case. |
+| `--inc` | *(none)* | FRAP incident number (`"UNIT INC"` or `INC`) — the robust, order-independent way to pick when name+year repeats; errors if still ambiguous (combine with `--index`) |
 | `--lat`, `--lon` | *(IRWIN lookup)* | Manual ignition WGS84 `lat`/`lon`; give both and skip the IRWIN/WFIGS lookup (used for pre-IRWIN fires). |
 | `--crs` | `EPSG:4326` | Output CRS for both shapefiles; any pyproj-accepted input (e.g. `EPSG:32611`). |
 | `--out-dir` | `FireBehaviorModels/SampleData/<year>_<slug>` | Output directory, created if missing. `<slug>` = lowercased fire name with spaces → `-`. |
