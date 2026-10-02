@@ -107,8 +107,10 @@ FARSITE landscape (LCP) and the single-band DEM WindNinja reads elevation from.
 |---|---|---|---|
 | `enable` | bool | `true` | `false` ⇒ reuse `lcp`; nothing runs, no LANDFIRE network |
 | `lcp` | path | — | reuse path; **required** when `enable=false` |
-| `bbox` | str | — | `"W S E N"` WGS84; **exactly one** of `bbox`/`mapzone` required when enabled |
+| `bbox` | str | — | `"W S E N"` WGS84; **exactly one** of `bbox`/`mapzone`/`bbox_from` required when enabled |
 | `mapzone` | int | — | whole LANDFIRE map zone (1–10, 12–80, 98–99); region-sized, slow |
+| `bbox_from` | str | — | `"reference"` ⇒ auto-derive the LFPS bbox from `<run>/reference_perimeter.shp` bounds. The **fire stage resolves before the landscape** in this mode (seed CRS defaults to the LFPS EPSG:5070 target). Mutually exclusive with `bbox`/`mapzone` |
+| `bbox_margin_m` | num\|`"auto"` | `"auto"` | headroom on the auto bbox: `"auto"` = 10% of the perimeter's width/height **per axis**, or a fixed margin in landscape meters — so FARSITE can overestimate without hitting the landscape edge. Over-margining inflates the LCP *and* the WindNinja domain (runtime) |
 | `email` | str | — | LFPS-required requester email (open API, not a token). **Required** when enabled |
 | `version` | int | `2024` | LANDFIRE release for the annual fuel/canopy layers |
 | `fuel_model` | str | `fbfm40` | band-4 fuel classification: `fbfm40` or `fbfm13` |
@@ -118,7 +120,7 @@ FARSITE landscape (LCP) and the single-band DEM WindNinja reads elevation from.
 Ingested LCP = `<run_dir>/landscape.tif`, **forced to EPSG:5070** (the tool's
 hard contract) — the ignition CRS follows via `[fire] crs` default, so FARSITE
 runs in 5070. Default LFPS stack is **8 bands** (elev/slope/aspect/FBFM40/CC/
-CH/CBH/CBD); the repo's `test/data/palisades.tif` (55.53 m) is the sample LCP.
+CH/CBH/CBD); the repo's `test/data/palisades.tif` (30 m) is the sample LCP.
 
 ---
 

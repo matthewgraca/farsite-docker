@@ -30,8 +30,17 @@ year = 2025                   # fire YEAR_ filter; REQUIRED (pins the run dir)
 [landscape]
 enable = false                # true => ingest_landscape (LFPS) -> <run>/landscape.tif
 lcp = "test/data/palisades.tif"  # reuse path when enable=false (the repo PALISADES LCP)
-# bbox = "-118.7 33.9 -118.4 34.2"   # 'W S E N' WGS84; mutually exclusive w/ mapzone,
+# bbox = "-118.7 33.9 -118.4 34.2"   # 'W S E N' WGS84; mutually exclusive w/ mapzone
+#                                   #   and bbox_from
 # mapzone = null                     #   required when enable=true
+# bbox_from = "reference"     # auto-derive the LFPS bbox from reference_perimeter.shp
+                              #   (the fire stage resolves BEFORE the landscape in this
+                              #   mode, seed CRS = EPSG:5070); mutually exclusive with
+                              #   bbox / mapzone.
+# bbox_margin_m = "auto"      # "auto" = 10% of the perimeter's width/height per axis
+                              #   (headroom so FARSITE can overestimate without hitting
+                              #   the landscape edge); or a fixed margin in m. Default
+                              #   "auto"; over-margin costs WindNinja hours.
 # email = "you@example.com"    # LFPS requester email, required when enable=true
 version = 2024                # LANDFIRE release for the annual fuel/canopy bands
 fuel_model = "fbfm40"         # fbfm40 | fbfm13 (band 4 = fuel model)

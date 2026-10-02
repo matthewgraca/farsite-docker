@@ -347,9 +347,13 @@ a partial/network failure):
 
 1. **landscape** — `ingest_landscape.py --bbox/--mapzone --email --version
    --fuel-model --resolution --out <run>/landscape [--dem-out]`; the LCP is
-   `<run>/landscape.tif`. `enable=false` reuses `[landscape] lcp`. The
-   single-band WindNinja DEM = `[landscape] dem_out` or an extracted band-1 of
-   the LCP (`<run>/<slug>-dem.tif`, mirroring `ingest_landscape._write_dem`).
+   `<run>/landscape.tif`. `enable=false` reuses `[landscape] lcp`. With
+   `bbox_from = "reference"`, the bbox is auto-derived from
+   `reference_perimeter.shp` bounds + `bbox_margin_m` (default `"auto"` = 10%
+   of width/height per axis) and the **fire stage runs first** in that mode.
+   The single-band WindNinja DEM = `[landscape] dem_out` or an extracted
+   band-1 of the LCP (`<run>/<slug>-dem.tif`, mirroring
+   `ingest_landscape._write_dem`).
 2. **fire** — `calfire_ignition.py --fire-name --year [--index] [--lat/--lon]
    --crs <LCP CRS> --out-dir <run>`; `fire.json` fields (name/year/alarm/cont/
    lat/lon) then drive the window, timezone, and HRRR anchor. `enable=false`

@@ -48,7 +48,8 @@ _DEFAULTS = {
              "lat": None, "lon": None, "crs": None, "fire_json": None},
     "landscape": {"enable": True, "lcp": None, "bbox": None, "mapzone": None,
                   "email": None, "version": "2024", "fuel_model": "fbfm40",
-                  "resolution": 30, "dem_out": None},
+                  "resolution": 30, "dem_out": None,
+                  "bbox_from": None, "bbox_margin_m": "auto"},
     "simulation": {"start": None, "end": None, "row_timezone": None,
                    "lead_days": 0, "burn_periods": []},
     "windninja": {"enable": True, "command": "", "run_root": None, "threads": 4,
@@ -71,7 +72,8 @@ TOP_LEVEL = ("fire", "landscape", "simulation", "windninja", "weather",
 _SECTION_KEYS = {
     "fire": ("enable", "name", "year", "index", "lat", "lon", "crs", "fire_json"),
     "landscape": ("enable", "lcp", "bbox", "mapzone", "email", "version",
-                  "fuel_model", "resolution", "dem_out"),
+                  "fuel_model", "resolution", "dem_out",
+                  "bbox_from", "bbox_margin_m"),
     "simulation": ("start", "end", "row_timezone", "lead_days", "burn_periods"),
     "windninja": ("enable", "command", "run_root", "threads", "options", "mesh_m"),
     "weather": ("enable", "wxs", "cache_dir", "threads", "elevation_tol_ft"),
@@ -108,6 +110,70 @@ def respath(v):
     if p.is_absolute():
         return p
     return REPO_ROOT / p
+
+
+# ingest_landscape forces this output projection, so it is the landscape CRS
+# any LFPS ingestion (incl. auto-bbox) targets.
+_LFPS_CRS = "EPSG:5070"
+
+
+def _expanded_projected_bounds(ref_shp, target_crs=_LFPS_CRS, margin="auto"):
+    """Reference perimeter bounds, reprojected into `target_crs` and expanded.
+
+    Returns ``(x0, y0, x1, y1)`` in `target_crs`. margin is a meter value, or
+    "auto" = 10% of the perimeter's width/height per axis. Dies on a missing
+    reference/.prj or an all-empty extent.
+    """
+    import shapefile
+    from pyproj import CRS, Transformer
+
+    ref_shp = Path(ref_shp)
+    if not ref_shp.is_file():
+        die(f"auto-bbox needs the reference perimeter at {ref_shp} (resolve the "
+            "fire first: [fire] enable=true, or reuse its fire.json)")
+    prj = ref_shp.with_suffix(".prj")
+    if not prj.is_file():
+        die(f"auto-bbox needs a .prj CRS alongside {ref_shp}")
+    try:
+        ref_crs = CRS.from_wkt(prj.read_text(encoding="utf-8-sig"))
+    except Exception as e:  # noqa: BLE001
+        die(f"auto-bbox cannot parse {prj}: {e}")
+    reader = shapefile.Reader(str(ref_shp))
+    x0, y0, x1, y1 = reader.bbox
+    tgt = CRS.from_user_input(target_crs)
+    to_tgt = Transformer.from_crs(ref_crs, tgt, always_xy=True)
+    xs, ys = to_tgt.transform([x0, x1], [y0, y1])
+    x0t, x1t, y0t, y1t = float(xs[0]), float(xs[1]), float(ys[0]), float(ys[1])
+    if margin == "auto":
+        mx = 0.1 * (x1t - x0t)
+        my = 0.1 * (y1t - y0t)
+    else:
+        mx = my = float(margin)
+    return x0t - mx, y0t - my, x1t + mx, y1t + my
+
+
+def _reference_bbox(ref_shp, target_crs=_LFPS_CRS, margin="auto"):
+    """WGS84 'W S E N' box bounding the reference perimeter + margin.
+
+    margin is a meter value, or "auto" = 10% of the perimeter's width/height
+    per axis (headroom so FARSITE can overestimate without hitting the
+    landscape edge). Expansion happens in `target_crs` meters; the expanded
+    rectangle's corners are then transformed to WGS84 for LFPS.
+    """
+    from pyproj import CRS, Transformer
+
+    x0, y0, x1, y1 = _expanded_projected_bounds(ref_shp, target_crs, margin)
+    tgt = CRS.from_user_input(target_crs)
+    to_geo = Transformer.from_crs(tgt, "EPSG:4326", always_xy=True)
+    lons, lats = [], []
+    for px, py in ((x0, y0), (x1, y0), (x0, y1), (x1, y1)):
+        lon, lat = to_geo.transform(px, py)
+        lons.append(float(lon))
+        lats.append(float(lat))
+    bbox = (min(lons), min(lats), max(lons), max(lats))
+    if bbox[0] >= bbox[2] or bbox[1] >= bbox[3]:
+        die(f"auto-bbox degenerate extent from {ref_shp}: {bbox}")
+    return f"{bbox[0]} {bbox[1]} {bbox[2]} {bbox[3]}"
 
 
 def _render_wn_value(key, value):
@@ -155,6 +221,15 @@ def load_config(path):
                     f"tuple like '6 7 8 60 90 16', got {value!r}")
             fm[model] = value
         data["farsite"]["fuel_moistures"] = fm
+    land_ = data.get("landscape", {})
+    if land_.get("bbox_from") not in (None, "reference"):
+        die('landscape.bbox_from must be "reference" '
+            "(the only supported source)")
+    m = land_.get("bbox_margin_m")
+    if m is not None and not (
+            m == "auto" or (isinstance(m, (int, float)) and m >= 0)):
+        die('landscape.bbox_margin_m must be "auto" or a non-negative meter '
+            f"value, got {m!r}")
     # fill schema defaults (validated above, so only known keys remain)
     for sec, defaults in _DEFAULTS.items():
         data.setdefault(sec, {})
@@ -574,11 +649,20 @@ class Runner:
             self.stage(name)
             print(f"landscape disabled (enable=false); reusing LCP {lcp.resolve()}")
         else:
-            bbox = land.get("bbox")
             mapzone = land.get("mapzone")
-            if (bbox is None) == (mapzone is None):
-                die("landscape.enable=true requires exactly one of [landscape] "
-                    "bbox or mapzone")
+            if land.get("bbox_from"):
+                if mapzone is not None or land.get("bbox"):
+                    die("landscape.enable=true: give exactly one of "
+                        "bbox / mapzone / bbox_from")
+                bbox = _reference_bbox(
+                    self.run_dir / "reference_perimeter.shp",
+                    _LFPS_CRS,
+                    land.get("bbox_margin_m", "auto") or "auto")
+            else:
+                bbox = land.get("bbox")
+                if (bbox is None) == (mapzone is None):
+                    die("landscape.enable=true requires exactly one of "
+                        "[landscape] bbox or mapzone")
             email = land.get("email") or die("landscape.enable=true requires "
                                              "[landscape] email (LFPS requester)")
             argv = [sys.executable, str(TOOL_DIR / "ingest_landscape.py")]
@@ -629,8 +713,15 @@ class Runner:
                 argv += ["--index", str(fire["index"])]
             if fire.get("lat") is not None and fire.get("lon") is not None:
                 argv += ["--lat", f"{fire['lat']:.6f}", "--lon", f"{fire['lon']:.6f}"]
-            argv += ["--crs", lcp_crs(self.cfg, self.lcp),
-                     "--out-dir", str(self.run_dir)]
+            if self.cfg["fire"].get("crs"):
+                crs = str(self.cfg["fire"]["crs"])
+            elif self.lcp and Path(self.lcp).is_file():
+                crs = lcp_crs(self.cfg, self.lcp)
+            else:
+                # auto-bbox (bbox_from): the LFPS landscape about to be
+                # ingested is EPSG:5070 but does not exist yet on this pass.
+                crs = _LFPS_CRS
+            argv += ["--crs", crs, "--out-dir", str(self.run_dir)]
             self.run_cmd(name, argv)
             fire_json = self.run_dir / "fire.json"
         else:
@@ -973,8 +1064,15 @@ class Runner:
     # ---------------------------------------------------------------- run ---
     def run(self):
         self.init_paths()
-        self.stage_landscape()
-        fj = self.stage_fire()
+        if self.cfg["landscape"].get("bbox_from"):
+            # auto-bbox derives the LFPS box from the reference perimeter, so
+            # the fire must resolve first; its seed CRS targets the EPSG:5070
+            # landscape that stage_landscape is about to produce.
+            fj = self.stage_fire()
+            self.stage_landscape()
+        else:
+            self.stage_landscape()
+            fj = self.stage_fire()
         self.stage_ignition()
         self.stage_window(fj)
         self.stage_windninja()
