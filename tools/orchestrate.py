@@ -22,6 +22,7 @@ nothing on disk. Config errors exit 2 (via die()); success exits 0.
 
 import argparse
 import json
+import math
 import shlex
 import subprocess
 import sys
@@ -118,12 +119,36 @@ def respath(v):
 _LFPS_CRS = "EPSG:5070"
 
 
+def _geometry_extent(reader, ref_shp):
+    """Extent from the actual shape records, NOT the SHP header bbox.
+
+    The header extent is advisory (the spec allows zero/stale values, and
+    writers like GDAL/pyshp may leave it unset), so auto-bbox must never trust
+    it - a corrupt header previously routed non-finite bounds through the CRS
+    transform (lat snapped to the 90-degree pole, lon became NaN)."""
+    x0 = y0 = math.inf
+    x1 = y1 = -math.inf
+    n = 0
+    for shp in reader.iterShapes():
+        for x, y in shp.points:
+            n += 1
+            if not (math.isfinite(x) and math.isfinite(y)):
+                die(f"auto-bbox: {ref_shp} has a non-finite vertex ({x!r}, {y!r}) - "
+                    "corrupt reference perimeter")
+            x0 = min(x0, x); x1 = max(x1, x)
+            y0 = min(y0, y); y1 = max(y1, y)
+    if n == 0 or x1 <= x0 or y1 <= y0:
+        die(f"auto-bbox: {ref_shp} is empty or degenerate (no valid extent)")
+    return x0, y0, x1, y1
+
+
 def _expanded_projected_bounds(ref_shp, target_crs=_LFPS_CRS, margin="auto"):
     """Reference perimeter bounds, reprojected into `target_crs` and expanded.
 
     Returns ``(x0, y0, x1, y1)`` in `target_crs`. margin is a meter value, or
     "auto" = 10% of the perimeter's width/height per axis. Dies on a missing
-    reference/.prj or an all-empty extent.
+    reference/.prj or a corrupt/empty extent. The extent is derived from the
+    geometry records (the SHP header bbox is advisory and ignored).
     """
     import shapefile
     from pyproj import CRS, Transformer
@@ -140,7 +165,7 @@ def _expanded_projected_bounds(ref_shp, target_crs=_LFPS_CRS, margin="auto"):
     except Exception as e:  # noqa: BLE001
         die(f"auto-bbox cannot parse {prj}: {e}")
     reader = shapefile.Reader(str(ref_shp))
-    x0, y0, x1, y1 = reader.bbox
+    x0, y0, x1, y1 = _geometry_extent(reader, ref_shp)
     tgt = CRS.from_user_input(target_crs)
     to_tgt = Transformer.from_crs(ref_crs, tgt, always_xy=True)
     xs, ys = to_tgt.transform([x0, x1], [y0, y1])
@@ -172,8 +197,11 @@ def _reference_bbox(ref_shp, target_crs=_LFPS_CRS, margin="auto"):
         lons.append(float(lon))
         lats.append(float(lat))
     bbox = (min(lons), min(lats), max(lons), max(lats))
-    if bbox[0] >= bbox[2] or bbox[1] >= bbox[3]:
-        die(f"auto-bbox degenerate extent from {ref_shp}: {bbox}")
+    if (not all(map(math.isfinite, bbox))
+            or not (-180.0 <= bbox[0] <= 180.0 and -180.0 <= bbox[2] <= 180.0)
+            or not (-90.0 <= bbox[1] <= 90.0 and -90.0 <= bbox[3] <= 90.0)
+            or bbox[0] >= bbox[2] or bbox[1] >= bbox[3]):
+        die(f"auto-bbox invalid WGS84 extent from {ref_shp}: {bbox}")
     return f"{bbox[0]} {bbox[1]} {bbox[2]} {bbox[3]}"
 
 

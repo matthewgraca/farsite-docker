@@ -18,8 +18,8 @@ import shapefile
 from pyproj import CRS, Transformer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "tools"))
-from orchestrate import (_LFPS_CRS, _expanded_projected_bounds, _reference_bbox,
-                         load_config, main)
+from orchestrate import (_LFPS_CRS, _expanded_projected_bounds, _geometry_extent,
+                         _reference_bbox, load_config, main)
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 
@@ -70,6 +70,42 @@ def test_wgs84_bbox_contains_the_reference(tmp_path):
 def test_missing_reference_dies(tmp_path):
     with pytest.raises(SystemExit) as exc:
         _reference_bbox(tmp_path / "reference_perimeter.shp", _LFPS_CRS, "auto")
+    assert exc.value.code == 2
+
+
+def test_corrupt_shp_header_bbox_is_ignored(tmp_path):
+    """Regression: the SHP *header* bbox is advisory and can carry garbage
+    (NaN/±inf), which used to route non-finite bounds through the CRS
+    transform - lat snapped to the 90-degree pole, lon became NaN. The extent
+    must come from the geometry records, never the header."""
+    import struct
+
+    ref = write_reference(tmp_path, (0, 0, 100000, 200000))
+    raw = bytearray(ref.read_bytes())
+    # overwrite the header bbox (bytes 36..68: minX,minY,maxX,maxY) with NaN
+    struct.pack_into("<4d", raw, 36, float("nan"), float("nan"),
+                     float("nan"), float("nan"))
+    ref.write_bytes(raw)
+
+    r = shapefile.Reader(str(ref))
+    assert all(v != v for v in r.bbox)  # header really is NaN now
+
+    # geometry-derived extent + margin are unaffected by the corrupt header
+    x0, y0, x1, y1 = _expanded_projected_bounds(ref, _LFPS_CRS, 5000.0)
+    assert (x0, y0, x1, y1) == pytest.approx(
+        (-5000, -5000, 105000, 205000), abs=1e-6)
+
+
+def test_nonfinite_vertex_dies(tmp_path):
+    class FakeShape:
+        points = [(0.0, 0.0), (float("nan"), 1.0)]
+
+    class FakeReader:
+        def iterShapes(self):
+            return iter([FakeShape()])
+
+    with pytest.raises(SystemExit) as exc:
+        _geometry_extent(FakeReader(), tmp_path / "corrupt.shp")
     assert exc.value.code == 2
 
 
