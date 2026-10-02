@@ -6,9 +6,12 @@ misplaces the ignition and grows nothing. calfire must write its .prj as
 WKT1_GDAL - never the WKT2 default.
 """
 
+from pathlib import Path
+
+import pytest
 from pyproj import CRS
 
-from calfire_ignition import _write_shapefile
+from calfire_ignition import _write_shapefile, write_polygon_shp
 
 ATTRS = {"FireName": "x", "Year": 2025, "Cause": "14", "Acres": 1.0,
          "Start": "s", "Contain": "e", "Lat": 34.0, "Lon": -118.0}
@@ -30,3 +33,20 @@ def test_polygon_prj_is_geographic_wkt1(tmp_path):
     prj = (tmp_path / "reference_perimeter.prj").read_text()
     assert "GEOGCS[" in prj and "WGS 84" in prj    # WKT1 geographic form
     assert CRS.from_wkt(prj).to_epsg() == 4326
+
+
+def test_nonfinite_vertex_dies_before_writing(monkeypatch, tmp_path):
+    """A non-finite perimeter vertex must abort with attribution (ring/pt +
+    source coord) instead of silently writing a poisoned .shp that breaks the
+    auto-bbox reader downstream."""
+    from calfire_ignition import die as _die
+    calls = []
+    monkeypatch.setattr("calfire_ignition.die",
+                        lambda m: calls.append(m) or (_ for _ in ()).throw(SystemExit(2)))
+    geom = {"type": "Polygon",
+            "coordinates": [[(0, 0), (0, 1), (1, 1), (1, 0), (0, 0)],
+                            [(0.2, 0.2), (float("inf"), float("inf")),
+                             (0.8, 0.8)]]}
+    with pytest.raises(SystemExit):
+        write_polygon_shp(Path(tmp_path), geom, ATTRS, CRS.from_epsg(5070))
+    assert "ring 1 pt 1" in calls[0] and "inf" in calls[0]

@@ -34,6 +34,7 @@ GDAL/FlamMap/FARSITE identify the shapefile CRS.
 
 import argparse
 import json
+import math
 import re
 import sys
 from datetime import datetime, timezone
@@ -312,13 +313,32 @@ def _rings_from_geojson(geom):
 
 def write_polygon_shp(out_dir, geom, attrs, crs):
     """reference_perimeter.* - the real final fire footprint (single multipart
-    polygon record). Vertices are (lon, lat) in 4326, reprojected otherwise."""
+    polygon record). Vertices are (lon, lat) in 4326, reprojected otherwise.
+
+    Dying here (rather than writing a corrupt .shp) is what makes a poisoned
+    reference perimeter impossible: a non-finite vertex is attributed to its
+    ring/vertex with the source WGS84 coordinate, so a downstream auto-bbox
+    failure can't masquerade as 'corrupt reference perimeter'."""
     rings = _rings_from_geojson(geom)
     if not rings or any(len(r) < 3 for r in rings):
         die("CAL FIRE returned a degenerate polygon")
+    for ri, ring in enumerate(rings):
+        for j, (x, y) in enumerate(ring):
+            if not (math.isfinite(x) and math.isfinite(y)):
+                die(f"CAL FIRE returned a non-finite vertex ring {ri} pt {j} "
+                    f"({x!r}, {y!r}) - corrupt fixture geometry")
     t = _reproject(crs)
     if t is not None:
-        rings = [[t.transform(x, y) for x, y in ring] for ring in rings]
+        proj = []
+        for ring in rings:
+            proj.append([t.transform(x, y) for x, y in ring])
+        for ri, ring in enumerate(proj):
+            for j, (x, y) in enumerate(ring):
+                if not (math.isfinite(x) and math.isfinite(y)):
+                    die(f"reprojecting to {crs.to_string()} produced a non-finite "
+                        f"vertex ring {ri} pt {j}: source WGS84 "
+                        f"{rings[ri][j]} -> ({x!r}, {y!r})")
+        rings = proj
     _write_shapefile(out_dir, "reference_perimeter", shapefile.POLYGON,
                      rings, attrs, crs)
 
