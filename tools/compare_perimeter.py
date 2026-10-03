@@ -404,14 +404,16 @@ def plot_overlay(result, pair, basemap, out_path, title, ignition=None):
     # the whole scene (polygons, tiles, axis limits) stays near (0, 0) so
     # Agg's vector-polygon fill is exact; ticks relabel to WGS84 degrees via
     # the closed-form inverse Web Mercator (no geometry reprojection needed).
+    ax.set_xlim(minx - ox - pad, maxx - ox + pad)
+    ax.set_ylim(miny - oy - pad, maxy - oy + pad)
     rmerc = MERCATOR_EXTENT / (2.0 * math.pi)   # Earth radius, m
     def _to_lon(v):
         return (v + ox) / rmerc * (180.0 / math.pi)
     def _to_lat(v):
         return (180.0 / math.pi) * (2.0 * math.atan(math.exp((v + oy) / rmerc))
                                     - math.pi / 2.0)
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{_to_lon(v):+.5f}\u00b0"))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{_to_lat(v):+.5f}\u00b0"))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{_to_lon(v):+.2f}\u00b0"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{_to_lat(v):+.2f}\u00b0"))
     ax.set_aspect("equal")
     draw(ax, ref_geom, ox, oy, facecolor="#d9d9d9", edgecolor="red",
          linewidth=1.2, zorder=1)

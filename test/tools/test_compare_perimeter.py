@@ -211,3 +211,8 @@ def test_plot_overlay_axis_labels_are_wgs84_degrees(monkeypatch, tmp_path):
     ys = degs(yf, ax.get_yticks())
     assert xs and all(-119.0 < x < -118.5 for x in xs)   # real CA longitudes
     assert ys and all(34.4 < y < 34.9 for y in ys)       # real CA latitudes
+    # the axis limits are set (near-origin scene, abs relabel), so ticks must
+    # actually spread across the AOI - >1 distinct value (regression: dropped
+    # set_xlim/set_ylim collapsed the whole axis onto a single coordinate)
+    assert len(set(xs)) > 1 and max(xs) - min(xs) > 0.05
+    assert len(set(ys)) > 1 and max(ys) - min(ys) > 0.05
