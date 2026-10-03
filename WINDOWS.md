@@ -6,27 +6,15 @@ command` / `[farsite] command` config fields. The pipeline tail
 (`runfarsite.exe`, `WindNinja_cli.exe`) is Windows-native, and nothing here
 forces Wine on a Windows host. This file is the setup recipe for a win-64 box.
 
-## Why not `environment.yml`
-
-`environment.yml` is a fully-pinned **Linux-only** conda export. Packages such
-as `_openmp_mutex`, `libgcc-ng`, `ld_impl_linux-64`, and `xorg-*` do not exist
-on `win-64`, so `conda env create -f environment.yml` cannot solve on Windows.
-Create the env with the recipe below instead.
-
 ## Windows conda env
+
+`environment.yml` is a fully-pinned **Linux-only** conda export. Use the recipe below.
 
 win-64, conda-forge (default channel):
 
 ```bat
 conda create -n flammap -c conda-forge python=3.12 rasterio numpy xarray cfgrib eccodes herbie-data pyshp pyproj requests timezonefinder tzdata pandas scipy matplotlib pytest tqdm
 ```
-
-- `python=3.12` — the boring LTS pick.
-- `tzdata` is **required** on Windows: `zoneinfo` (used by `hrrr_to_wxs.py`)
-  reads the IANA timezone database from it. The committed env already ships it.
-- Contingency — if any package is unavailable on win-64, drop it from the conda
-  line and `pip install <name>` inside the env (documented manual fallback, not
-  a code dependency).
 
 Activate with `conda activate flammap`.
 
