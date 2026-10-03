@@ -80,6 +80,7 @@ footprint + `fire.json`.
 | `index` | int | — | 0-based pick when `name` matches >1 record in a year |
 | `inc` | str | — | FRAP incident number (`"UNIT INC"` or `INC`) — the robust way to pick when `name`+`year` repeats; falls back to `index` if still ambiguous |
 | `lat`, `lon` | float | — (IRWIN lookup) | manual WGS84 ignition; **give both** to skip the WFIGS lookup (pre-IRWIN fires) |
+| `origin_tolerance_m` | num | `100` | how far outside the CAL FIRE reference perimeter the WFIGS origin may sit before the ignition preflight aborts (see below) |
 | `crs` | str | LCP CRS | output CRS for both shapefiles (any pyproj string, e.g. `EPSG:32611`); default = the LCP's CRS so the seed matches FARSITE's landscape |
 | `fire_json` | path | `<run_dir>/fire.json` | output; **required input** when `enable=false` |
 
@@ -97,6 +98,17 @@ points at), and the change is recorded under `fire.json["ignition_adjusted"]`
 The top-level `fire.json` `lat`/`lon` (the weather/elevation anchor) is left at
 the **original WFIGS coordinate** — only the seed moves. `--dry-run` prints what
 would happen without writing.
+
+**Origin-within-perimeter check** (first step of that preflight, before the fuel
+nudge): WFIGS' point of origin and CAL FIRE's crew-mapped final perimeter are
+independent sources and can disagree — e.g. POST 2024 (LAC 00205253) has its
+origin ~2.3 km outside the final footprint. Rather than auto-heal that data
+mismatch, the run **aborts** with a diagnostic: `<run>/ignition_outside_
+perimeter.png` renders the reference perimeter, the WFIGS origin, the nearest
+perimeter point, and the offset distance, and the error names that file. If the
+origin is genuinely correct, set `[fire] lat`/`lon` from a field-verified
+coordinate; otherwise raise `origin_tolerance_m` to accept the gap.
+`--dry-run` reports the same math without writing the PNG or aborting.
 
 ---
 

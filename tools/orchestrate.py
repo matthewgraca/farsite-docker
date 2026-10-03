@@ -46,7 +46,8 @@ _NB_FUEL_MODELS = {0} | set(range(91, 100))  # Scott & Burgan NB1-NB9 + model 0
 
 _DEFAULTS = {
     "fire": {"enable": True, "name": None, "year": None, "index": None,
-             "inc": None, "lat": None, "lon": None, "crs": None, "fire_json": None},
+             "inc": None, "lat": None, "lon": None, "crs": None, "fire_json": None,
+             "origin_tolerance_m": 100.0},
     "landscape": {"enable": True, "lcp": None, "bbox": None, "mapzone": None,
                   "email": None, "version": "2024", "fuel_model": "fbfm40",
                   "resolution": 30, "dem_out": None,
@@ -72,7 +73,7 @@ TOP_LEVEL = ("fire", "landscape", "simulation", "windninja", "weather",
              "farsite", "output")
 _SECTION_KEYS = {
     "fire": ("enable", "name", "year", "index", "inc", "lat", "lon", "crs",
-             "fire_json"),
+             "fire_json", "origin_tolerance_m"),
     "landscape": ("enable", "lcp", "bbox", "mapzone", "email", "version",
                   "fuel_model", "resolution", "dem_out",
                   "bbox_from", "bbox_margin_m"),
@@ -259,6 +260,11 @@ def load_config(path):
             m == "auto" or (isinstance(m, (int, float)) and m >= 0)):
         die('landscape.bbox_margin_m must be "auto" or a non-negative meter '
             f"value, got {m!r}")
+    fire_ = data.get("fire", {})
+    otol = fire_.get("origin_tolerance_m")
+    if otol is not None and not (isinstance(otol, (int, float)) and otol >= 0):
+        die(f"[fire] origin_tolerance_m must be a non-negative meter value, "
+            f"got {otol!r}")
     # fill schema defaults (validated above, so only known keys remain)
     for sec, defaults in _DEFAULTS.items():
         data.setdefault(sec, {})
@@ -576,6 +582,156 @@ def ensure_ignition_burnable(lcp, ign_shp, fire_json, *,
         }
         fire_json.write_text(json.dumps(fj, indent=2) + "\n")
         return rec
+
+
+def _rings_union(shp_path):
+    """Reference perimeter as a shapely (Multi)Polygon.
+
+    Writers normalize ring winding (pyshp writes every part CW), so holes
+    cannot be recovered from sign; reconstruction is purely geometric: a ring
+    strictly contained in another ring of the same record is that ring's hole,
+    everything else is a separate island. Unary-union merges across records.
+    Empty on no/broken geometry.
+    """
+    import shapefile
+    from shapely.geometry import Polygon
+    from shapely.geometry.polygon import orient
+    from shapely.ops import unary_union
+
+    filled = []
+    for rec in shapefile.Reader(str(shp_path)).shapes():
+        rings = [Polygon(list(rec.points[i:j]))
+                 for i, j in zip(rec.parts, list(rec.parts[1:]) + [None])
+                 if len(rec.points[i:j]) >= 4]
+        rings = [orient(r, sign=1.0) for r in rings]   # valid, matched area
+        if not rings:
+            continue
+        holes_by_host = {}
+        for r in rings:
+            hosts = [h for h in rings if h is not r and h.covers(r)
+                     and h.area > r.area + 1e-9]
+            if hosts:
+                host = min(hosts, key=lambda h: h.area)
+                holes_by_host.setdefault(host, []).append(r)
+        for h, hs in holes_by_host.items():
+            try:
+                filled.append(Polygon(list(h.exterior.coords),
+                                      holes=[list(o.exterior.coords) for o in hs]))
+            except Exception:  # noqa: BLE001 - fall back to the plain ring
+                filled.append(h)
+        emitted = {id(h) for h in holes_by_host}
+        emitted |= {id(o) for hs in holes_by_host.values() for o in hs}
+        for r in rings:
+            if id(r) not in emitted:
+                filled.append(r)
+    return unary_union(filled) if filled else None
+
+
+def ensure_ignition_within_perimeter(fire_json, ref_shp, *,
+                                     tolerance_m=100.0, plot_path=None,
+                                     dry=False):
+    """WFIGS origin vs CAL FIRE reference perimeter containment check.
+
+    fire.json's top-level lat/lon is the original WFIGS anchor. Returns a dict
+    {lat, lon, crs, distance_m, inside, nearest_lat, nearest_lon} or None when
+    there is nothing to check (no reference/.prj). When the origin lies more
+    than `tolerance_m` outside the perimeter, writes a diagnostic PNG
+    (perimeter + origin + nearest boundary + distance) at plot_path unless
+    dry=True, so the caller can abort showing the user where the seed sits.
+    """
+    import shapefile
+    from pyproj import CRS, Transformer
+    from shapely.geometry import Point
+
+    fire_json = respath(fire_json)
+    ref_shp = respath(ref_shp)
+    if not ref_shp.is_file():
+        return None
+    prj = ref_shp.with_suffix(".prj")
+    if not prj.is_file():
+        return None
+    try:
+        ref_crs = CRS.from_wkt(prj.read_text(encoding="utf-8-sig"))
+    except Exception:  # noqa: BLE001 - unparsable .prj means "cannot check"
+        return None
+    union = _rings_union(ref_shp)
+    if union is None or union.is_empty:
+        return None
+
+    fj = read_fire_json(fire_json)
+    lat, lon = fj["lat"], fj["lon"]
+    if not (isinstance(lat, (int, float)) and isinstance(lon, (int, float))
+            and math.isfinite(lat) and math.isfinite(lon)):
+        return None  # a bogus origin has nothing to check against
+    to_ref = Transformer.from_crs("EPSG:4326", ref_crs, always_xy=True)
+    rec = {"lat": float(lat), "lon": float(lon),
+           "crs": ref_crs.to_epsg() or ref_crs.to_string()}
+    try:
+        p = Point(*to_ref.transform(lon, lat))
+    except Exception:  # noqa: BLE001 - out-of-domain origin, can't check
+        return None
+    if not (math.isfinite(float(p.x)) and math.isfinite(float(p.y))):
+        return None
+    boundary = union.boundary
+    rec["inside"] = bool(union.covers(p))
+    rec["distance_m"] = float(boundary.distance(p))
+    if rec["inside"] or rec["distance_m"] <= tolerance_m:
+        return rec
+
+    nb = boundary.interpolate(boundary.project(p))
+    to_wgs = Transformer.from_crs(ref_crs, "EPSG:4326", always_xy=True)
+    nlon, nlat = to_wgs.transform(nb.x, nb.y)
+    rec["nearest_lat"], rec["nearest_lon"] = float(nlat), float(nlon)
+    rec["tolerance_m"] = float(tolerance_m)
+    if not dry and plot_path is not None:
+        _plot_seed_vs_perimeter(union, p, nb, rec["distance_m"], plot_path,
+                                ref_crs, fj)
+    return rec
+
+
+def _plot_seed_vs_perimeter(union, origin, nearest, dist_m, out_png, ref_crs,
+                            fj):
+    """PNG: reference perimeter + WFIGS origin + nearest boundary + distance."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    name = str(fj.get("name") or "fire").upper()
+    epsg = ref_crs.to_epsg()
+    crs_lab = f"EPSG:{epsg}" if epsg else "projected m"
+    bx0, by0, bx1, by1 = union.bounds
+    span = max(bx1 - bx0, by1 - by0, 1.0)
+    mx = span * 0.06
+
+    fig, ax = plt.subplots(figsize=(11, 9), dpi=110)
+    polys = union.geoms if union.geom_type == "MultiPolygon" else [union]
+    for poly in polys:
+        for ring in [poly.exterior] + list(poly.interiors):
+            xs, ys = ring.xy
+            ax.fill(xs, ys, "#d9d9d9", edgecolor="red", lw=1.1, zorder=2)
+    ax.plot(origin.x, origin.y, "*", ms=26, color="magenta", mec="black",
+            zorder=5, label="WFIGS point of origin")
+    ax.plot(nearest.x, nearest.y, "s", ms=9, color="darkgreen", mec="black",
+            zorder=5, label=f"nearest perimeter point ({dist_m:.0f} m)")
+    ax.plot([origin.x, nearest.x], [origin.y, nearest.y], "k--", lw=1,
+            alpha=0.7, zorder=4)
+    ax.set_xlim(bx0 - mx, bx1 + 2 * mx)
+    ax.set_ylim(min(by0, origin.y) - mx, max(by1, origin.y) + 2 * mx)
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.3)
+    ax.set_xlabel(f"{crs_lab} easting (m)")
+    ax.set_ylabel(f"{crs_lab} northing (m)")
+    ax.legend(loc="upper left", fontsize=8.5, framealpha=0.9)
+    ax.set_title(f"{name} {fj.get('year', '')}: WFIGS ignition is "
+                 f"{dist_m:.0f} m outside the CAL FIRE reference perimeter\n"
+                 f"origin ({fj.get('lat', float('nan')):.5f}, "
+                 f"{fj.get('lon', float('nan')):.5f})")
+    fig.tight_layout()
+    out_png = Path(out_png)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, facecolor="white")
+    plt.close(fig)
 
 
 class Runner:
@@ -1071,6 +1227,46 @@ class Runner:
         if not (lcp and lcp.is_file() and ign.is_file() and fire_json.is_file()):
             print("skip: need LCP + ignition.shp + fire.json")
             return
+        # 0) WFIGS-origin containment sanity check (before the fuel nudge, so
+        #    it tests the true origin). A seed well outside the mapped final
+        #    perimeter is a WFIGS/FRAP data mismatch (e.g. POST 2024 ~2.3 km
+        #    off), not something to auto-heal: die pointing at a PNG so the
+        #    user can see origin-vs-perimeter at a glance.
+        ref_shp = self.run_dir / "reference_perimeter.shp"
+        if not self.cfg["fire"]["enable"]:
+            fj_src = self.cfg["fire"]["fire_json"]
+            ref_shp = respath(fj_src).parent / "reference_perimeter.shp" \
+                if fj_src else ref_shp
+        try:
+            prc = ensure_ignition_within_perimeter(
+                fire_json, ref_shp,
+                tolerance_m=float(self.cfg["fire"]["origin_tolerance_m"]),
+                plot_path=self.run_dir / "ignition_outside_perimeter.png",
+                dry=self.dry)
+        except SystemExit:
+            raise
+        except Exception as e:  # noqa: BLE001 - a failed check shouldn't stop the run
+            print(f"ignition perimeter check skipped: {e}")
+            prc = None
+        if prc is not None and not prc.get("inside") \
+                and prc["distance_m"] > prc.get("tolerance_m", 100.0):
+            png = self.run_dir / "ignition_outside_perimeter.png"
+            tol = prc.get("tolerance_m", 100.0)
+            why = (f"WFIGS origin ({prc['lat']:.6f}, {prc['lon']:.6f}) is "
+                   f"{prc['distance_m']:.0f} m outside the CAL FIRE reference "
+                   f"perimeter (nearest point "
+                   f"{prc['nearest_lon']:.6f}, {prc['nearest_lat']:.6f}).")
+            if self.dry:
+                print(f"[dry-run] {why}")
+                print(f"[dry-run] real run would write {png.resolve()} and abort: "
+                      f"set [fire] lat/lon to a verified origin, or raise "
+                      f"[fire] origin_tolerance_m (now {tol:g} m)")
+            else:
+                die(f"{why}\n"
+                    f"Tolerance is [fire] origin_tolerance_m = {tol:g} m. Set "
+                    f"[fire] lat/lon from a field-verified origin, or raise the "
+                    f"tolerance.\n"
+                    f"See the seed-vs-perimeter map: {png.resolve()}")
         try:
             rec = ensure_ignition_burnable(lcp, ign, fire_json, dry=self.dry)
         except SystemExit:

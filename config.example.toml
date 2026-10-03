@@ -26,6 +26,11 @@ year = 2025                   # fire YEAR_ filter; REQUIRED (pins the run dir)
 # lon = -118.55112            #   the IRWIN/WFIGS lookup
 # crs = "EPSG:32611"          # optional shapefile CRS; default = LCP CRS, so the
                               #   ignition seed matches FARSITE's landscape
+# origin_tolerance_m = 100    # how far outside the reference perimeter the WFIGS
+                              #   origin may sit; beyond it the run aborts writing
+                              #   <run>/ignition_outside_perimeter.png (a WFIGS
+                              #   vs CAL FIRE data mismatch, e.g. POST 2024 ~2.3 km
+                              #   off). Fix by [fire] lat/lon, else raise this.
 # fire_json = null            # output fire.json (default <run_dir>/fire.json), or
                               #   required input path when enable=false
 
