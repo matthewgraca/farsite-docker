@@ -17,7 +17,9 @@ accurate planar areas (a mostly-geographic sim CRS falls back to a UTM zone
 derived from the simulated footprint's centroid). The overlay PNG is plotted
 in EPSG:3857 (Web Mercator) because XYZ tiles are natively 3857; basemap
 providers are tried in order (imagery -> osm) with tile failures falling
-through to a plain projected frame. FARSITE perimeters arrive as closed-ring
+through to a plain projected frame. Axis ticks are relabeled to WGS84
+lon/lat degrees via the closed-form inverse Web Mercator (the underlying
+axes stay 3857 meters). FARSITE perimeters arrive as closed-ring
 POLYLINE (SHPT 3/13) or POLYGON (5/15) records; both are accepted.
 
 New metrics slot into METRICS and new visualizations into plot_overlay();
@@ -397,15 +399,19 @@ def plot_overlay(result, pair, basemap, out_path, title, ignition=None):
         ex = extent
         ax.imshow(mosaic, extent=(ex[0] - ox, ex[1] - ox, ex[2] - oy, ex[3] - oy),
                   interpolation="nearest", zorder=0)
-    else:
-        ax.set_xlabel("EPSG:3857 easting (m)")
-        ax.set_ylabel("EPSG:3857 northing (m)")
+    ax.set_xlabel("longitude (WGS84)")
+    ax.set_ylabel("latitude (WGS84)")
     # the whole scene (polygons, tiles, axis limits) stays near (0, 0) so
-    # Agg's vector-polygon fill is exact; ticks relabel to absolute meters.
-    ax.set_xlim(minx - ox - pad, maxx - ox + pad)
-    ax.set_ylim(miny - oy - pad, maxy - oy + pad)
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v + ox:,.0f}"))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{v + oy:,.0f}"))
+    # Agg's vector-polygon fill is exact; ticks relabel to WGS84 degrees via
+    # the closed-form inverse Web Mercator (no geometry reprojection needed).
+    rmerc = MERCATOR_EXTENT / (2.0 * math.pi)   # Earth radius, m
+    def _to_lon(v):
+        return (v + ox) / rmerc * (180.0 / math.pi)
+    def _to_lat(v):
+        return (180.0 / math.pi) * (2.0 * math.atan(math.exp((v + oy) / rmerc))
+                                    - math.pi / 2.0)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{_to_lon(v):+.5f}\u00b0"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, pos: f"{_to_lat(v):+.5f}\u00b0"))
     ax.set_aspect("equal")
     draw(ax, ref_geom, ox, oy, facecolor="#d9d9d9", edgecolor="red",
          linewidth=1.2, zorder=1)

@@ -7,6 +7,8 @@ No network and no fixtures: pyshp writes the synthetic shapefiles into
 tmp_path, mirroring test_runroot_to_atm.py.
 """
 
+import re
+
 import pyproj
 import pytest
 import shapefile
@@ -170,3 +172,42 @@ def test_plot_overlay_with_ignition_marker(tmp_path):
                  "PALISADES — IoU = 0.250", ignition=Point(5, 5))
     assert out.is_file()
     assert out.stat().st_size > 0
+
+
+def test_plot_overlay_axis_labels_are_wgs84_degrees(monkeypatch, tmp_path):
+    """Regression: overlay axes stay Web Mercator meters internally (the
+    scene is shifted near the origin for exact Agg fills) but tick labels
+    must be WGS84 lon/lat degrees, not bare meters - no geometry
+    reprojection is involved."""
+    import math
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    R = 6378137.0
+    def xy(lon, lat):
+        return (R * math.radians(lon),
+                R * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)))
+    def box(lon0, lat0, lon1, lat1):
+        return Polygon([xy(lon0, lat0), xy(lon1, lat0),
+                        xy(lon1, lat1), xy(lon0, lat1)])
+
+    ref = box(-118.90, 34.62, -118.76, 34.81)   # ~ POST 2024 LAC AOI
+    sim = box(-118.87, 34.66, -118.76, 34.78)
+    state = {}
+    orig = plt.subplots
+    def fake_subplots(*a, **k):
+        fig, ax = orig(*a, **k)
+        state["ax"] = ax
+        return fig, ax
+    monkeypatch.setattr(plt, "subplots", fake_subplots)
+    plot_overlay({"iou": 0.5}, (ref, sim), None, tmp_path / "o.png", "t")
+
+    ax = state["ax"]
+    xf, yf = ax.xaxis.get_major_formatter(), ax.yaxis.get_major_formatter()
+    def degs(formatter, ticks):
+        return [float(re.sub(r"[^\d.\-]", "", formatter(v, 0))) for v in ticks]
+    xs = degs(xf, ax.get_xticks())
+    ys = degs(yf, ax.get_yticks())
+    assert xs and all(-119.0 < x < -118.5 for x in xs)   # real CA longitudes
+    assert ys and all(34.4 < y < 34.9 for y in ys)       # real CA latitudes
