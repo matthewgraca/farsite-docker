@@ -23,30 +23,41 @@ Activate with `conda activate flammap`.
 The orchestrator's subprocesses inherit the parent shell's environment, so the
 native binaries need their runtime variables in **the same terminal** that
 launches `orchestrate.py`. Either run `FireBehaviorModels\SetEnv.bat` in that
-terminal, or set the three data variables yourself:
+terminal (**note:** `SetEnv.bat` also sets `PROJ_LIB` to the repo share — see
+the caveat below; in the pipeline terminal, launch `orchestrate.py` with the
+two `set` lines instead, or `set "PROJ_LIB="` after sourcing it), or set the
+data variables yourself:
 
 | Variable | Value |
 |---|---|
 | `PATH` | *(not required)* — the exes load their DLL family from their own directory; prepending `bin` can shadow the conda GDAL DLLs (see note below) |
 | `GDAL_DATA` | `FireBehaviorModels\bin\share\gdal-data` |
-| `PROJ_LIB` | `FireBehaviorModels\bin\share\proj` |
+| `PROJ_LIB` | **do NOT set for the pipeline terminal** (see below) |
 | `WINDNINJA_DATA` | `FireBehaviorModels\bin\share\windninja-data` |
 
 cmd equivalent (paths under `C:\path\to`):
 
 ```bat
 set "GDAL_DATA=C:\path\to\FireBehaviorModels\bin\share\gdal-data"
-set "PROJ_LIB=C:\path\to\FireBehaviorModels\bin\share\proj"
 set "WINDNINJA_DATA=C:\path\to\FireBehaviorModels\bin\share\windninja-data"
+rem Intentionally NO "set PROJ_LIB=..." here - see the PROJ_LIB note below.
 ```
 
-Required for the native `runfarsite.exe` / `WindNinja_cli.exe`. These three
-data variables point at the repo's **native** GDAL/proj/WindNinja data and must
-match the DLLs `runfarsite.exe`/`WindNinja_cli.exe` load (the repo's `bin`
-stack). The conda `rasterio`/`pyproj` also read `GDAL_DATA`/`PROJ_LIB` and read
-the repo's data fine (they are plain, version-tolerant tables); pointing the
-*natives* at the conda-shared dirs instead would be the wrong-database case, so
-set them here and not to the conda env's `Library\share\...`.
+Required for the native `runfarsite.exe` / `WindNinja_cli.exe`: `GDAL_DATA` and
+`WINDNINJA_DATA` point at the repo's **native** data and must match the DLLs the
+exes load (the repo's `bin` stack). The conda `rasterio` reads `GDAL_DATA` fine
+(version-tolerant tables).
+
+**`PROJ_LIB` caveat:** do **not** point it at
+`FireBehaviorModels\bin\share\proj` in the terminal that runs
+`orchestrate.py`. The repo's bundled `proj.db` predates the conda stack; with
+`PROJ_LIB` set there, conda `pyproj 3.8/PROJ 9.8` still *loads* it but quietly
+emits `(inf, inf)` for valid WGS84 coordinates — surfacing as
+`reprojecting to EPSG:5070 produced a non-finite vertex ... -> (inf, inf)`
+from `calfire_ignition`. The native exes locate their own `proj.db` via a
+DLL-relative path, so the global variable is not needed for them either. If a
+native tool ever genuinely needs it, set it inline for just that command
+(`set "PROJ_LIB=..." && tool.exe ...`), never for the whole pipeline shell.
 
 `FireBehaviorModels\bin` does **not** need to be on `PATH` — the native exes
 resolve their sibling DLLs from their own directory. Prepending `bin` to `PATH`
