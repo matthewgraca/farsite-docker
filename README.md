@@ -5,6 +5,9 @@ Run FARSITE simulations on preexisting California fires, and compare those simul
 - FARSITE CLI https://www.alturassolutions.com/FB/FB_API.htm
 - WindNinja CLI https://ninjastorm.firelab.org/windninja/
 
+# FARSITE, WindNinja, conda
+Extract the `FireBehaviorModels` folder into the repo root directory. WindNinja can live anywhere.
+
 Once downloaded, you'll need to create a conda env
 ```bat
 conda create -n flammap -c conda-forge python=3.12 rasterio numpy xarray cfgrib eccodes herbie-data pyshp pyproj requests timezonefinder tzdata pandas scipy matplotlib pytest tqdm
