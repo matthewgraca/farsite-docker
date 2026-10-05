@@ -439,19 +439,32 @@ IoU (intersection-over-union) plus an overlay PNG. New metrics/visualizations
 can slot in later via the `METRICS` registry and `plot_overlay()`; this version
 ships IoU + the overlay only.
 
+The simplest invocation is just the working directory - everything else is
+derived from it and both outputs land in `RUN_DIR/results/`:
+
+```
+python tools/compare_perimeter.py FireBehaviorModels\Validation\Corral2024
+  # writes <run>/results/result.json  (+ overlay.png, magenta ignition star)
+```
+
+or with explicit control:
+
 ```
 python tools/compare_perimeter.py --run-dir <run> [--metric iou]
-                                  [--plot overlay.png] [--json result.json]
+                                  [--plot <png>] [--json <json>]
                                   [--basemap auto|imagery|osm|none]
 python tools/compare_perimeter.py --reference <ref.shp> --simulated <sim.shp>
                                   [same options]
 ```
 
-Exactly one source group is required: `--run-dir` (reference + fire.json +
-`farsite-out/<slug>_Perimeters.shp` all derive from it; the slug is the
-lower-cased fire name with spaces → `-`), or explicit `--reference` +
-`--simulated`. `--metric` is a comma-list (valid: `iou`); `--json` dumps the
-machine-readable `compare()` dict; `--plot` writes the overlay PNG.
+A RUN_DIR positional (or its `--run-dir` alias) derives everything from the
+run: reference + fire.json + `farsite-out/<slug>_Perimeters.shp` (the slug is
+the lower-cased fire name with spaces → `-`). With a RUN_DIR, `--plot` and
+`--json` default to `<run>/results/overlay.png` and
+`<run>/results/result.json` (directory auto-created); without one
+(`--reference/--simulated`) both must be given explicitly. `--metric` is a
+comma-list (valid: `iou`); `--json` dumps the machine-readable `compare()`
+dict; `--plot` writes the overlay PNG.
 
 `--plot` marks the FARSITE **ignition seed** as a magenta star: under
 `--run-dir` it auto-reads `<run>/ignition.shp` (the post-preflight seed FARSITE

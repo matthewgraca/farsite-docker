@@ -15,7 +15,7 @@ import shapefile
 from shapely.geometry import Point, Polygon
 
 from compare_perimeter import (compare, compute, load_ignition_point,
-                               load_polygons, plot_overlay,
+                               load_polygons, main, plot_overlay,
                                select_final_perimeters)
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -172,6 +172,40 @@ def test_plot_overlay_with_ignition_marker(tmp_path):
                  "PALISADES — IoU = 0.250", ignition=Point(5, 5))
     assert out.is_file()
     assert out.stat().st_size > 0
+
+
+def _build_run_dir(tmp_path):
+    """A minimal run dir: reference_perimeter.shp + fire.json + the FARSITE
+    output file the tool derives from the fire name."""
+    run = tmp_path / "Corral2024"
+    ref = write(run / "reference_perimeter.shp", 5, pyproj.CRS.from_epsg(5070),
+                [("N", "C", 20, 0)],
+                [[[(0, 0), (100000, 0), (100000, 200000), (0, 200000), (0, 0)]]],
+                [("x",)])
+    write(run / "farsite-out" / "corral_Perimeters.shp", 5,
+          pyproj.CRS.from_epsg(5070), [("N", "C", 20, 0)],
+          [[[(5000, 5000), (95000, 5000), (95000, 195000), (5000, 195000),
+             (5000, 5000)]]], [("x",)])
+    (run / "fire.json").write_text(
+        '{"name": "Corral", "year": 2024, "lat": 37.6, "lon": -121.4}')
+    return run, ref
+
+
+def test_one_arg_run_dir_writes_results_dir(tmp_path):
+    """The simplified invocation - just the working directory - must write
+    RUN_DIR/results/result.json and RUN_DIR/results/overlay.png."""
+    run, _ = _build_run_dir(tmp_path)
+    rc = main([str(run), "--basemap", "none"])
+    assert rc == 0
+    assert (run / "results" / "result.json").is_file()
+    assert (run / "results" / "overlay.png").is_file()
+    assert (run / "results" / "overlay.png").stat().st_size > 0
+
+
+def test_run_dir_alias_is_equivalent(tmp_path):
+    run, _ = _build_run_dir(tmp_path)
+    assert main(["--run-dir", str(run), "--basemap", "none"]) == 0
+    assert (run / "results" / "result.json").is_file()
 
 
 def test_plot_overlay_axis_labels_are_wgs84_degrees(monkeypatch, tmp_path):

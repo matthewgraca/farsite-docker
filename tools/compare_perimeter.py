@@ -26,10 +26,11 @@ New metrics slot into METRICS and new visualizations into plot_overlay();
 this change ships IoU + the overlay only.
 
 Usage:
-    python tools/compare_perimeter.py --run-dir <run>
+    python tools/compare_perimeter.py <run-dir>          # -> <run>/results/{result.json,overlay.png}
+    python tools/compare_perimeter.py --run-dir <run> [--plot PNG] [--json PATH]
+                                      [--metric iou] [--basemap auto]
     python tools/compare_perimeter.py --reference <ref.shp> --simulated <sim.shp>
-                                      [--metric iou] [--plot overlay.png]
-                                      [--json result.json] [--basemap auto]
+                                      [--plot PNG] [--json PATH]
 """
 
 import argparse
@@ -449,13 +450,17 @@ def build_parser():
         prog="compare_perimeter.py",
         description="Compare the CalFire reference perimeter against the "
                     "FARSITE-simulated perimeter (IoU + overlay PNG).",
-        epilog="Exactly one source: --run-dir, or --reference + --simulated "
-               "together.",
+        epilog="Sources: a positional run dir (the normal case - writes "
+               "RUN_DIR/results/result.json + overlay.png), or "
+               "--reference + --simulated together.",
     )
-    src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument("--run-dir", metavar="PATH", default=None,
-                     help="pipeline run dir; reference_perimeter.shp + fire.json "
-                          "derive the simulated FARSITE output from it")
+    p.add_argument("run_dir", metavar="RUN_DIR", nargs="?", default=None,
+                   help="pipeline run dir (reference_perimeter.shp + fire.json "
+                        "derive the FARSITE output); results land in "
+                        "RUN_DIR/results/")
+    src = p.add_mutually_exclusive_group()
+    src.add_argument("--run-dir", dest="run_dir_flag", metavar="PATH", default=None,
+                     help="alias for the RUN_DIR positional")
     src.add_argument("--reference", metavar="SHP", default=None,
                      help="reference (real CalFire) perimeter shapefile "
                           "(requires --simulated)")
@@ -469,9 +474,9 @@ def build_parser():
                    help="comma-list of metrics to print (valid: "
                         f"{'/'.join(METRICS)})")
     p.add_argument("--plot", metavar="PNG", default=None,
-                   help="write the overlay PNG to this path")
+                   help="overlay PNG path (default <run-dir>/results/overlay.png)")
     p.add_argument("--json", metavar="PATH", default=None,
-                   help="write the machine-readable compare() dict as JSON")
+                   help="result JSON path (default <run-dir>/results/result.json)")
     p.add_argument("--basemap", choices=("auto", "imagery", "osm", "none"),
                    default="auto",
                    help="auto tries imagery then osm; none skips tiles "
@@ -487,10 +492,23 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
 
+    if args.run_dir and args.run_dir_flag \
+            and Path(args.run_dir) != Path(args.run_dir_flag):
+        die("give the run dir as a positional OR --run-dir, not both")
+    args.run_dir = args.run_dir_flag or args.run_dir
+
     if args.run_dir and args.simulated:
-        die("--run-dir is mutually exclusive with --reference/--simulated")
+        die("RUN_DIR is mutually exclusive with --reference/--simulated")
     if (args.reference is None) != (args.simulated is None):
-        die("give both --reference and --simulated, or --run-dir only")
+        die("give both --reference and --simulated, or a RUN_DIR only")
+
+    # default outputs go to RUN_DIR/results/ so the tool is a one-arg run
+    if args.run_dir:
+        results = Path(args.run_dir) / "results"
+        if args.json is None:
+            args.json = results / "result.json"
+        if args.plot is None:
+            args.plot = results / "overlay.png"
 
     fire_name = "perimeter comparison"
     if args.run_dir:
@@ -555,6 +573,11 @@ def main(argv=None):
     print(f"union_m2: {result['area_m2']['union']:.0f}")
     for m in metrics:
         print(f"{m} = {compute(m, A, B):.3f}")
+
+    if args.json or args.plot:
+        for _out in (args.json, args.plot):
+            if _out is not None:
+                Path(_out).parent.mkdir(parents=True, exist_ok=True)
 
     if args.json:
         with open(args.json, "w") as f:
