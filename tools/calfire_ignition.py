@@ -35,12 +35,23 @@ GDAL/FlamMap/FARSITE identify the shapefile CRS.
 import argparse
 import json
 import math
+import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 import requests  
 import shapefile  
+
+# A stray PROJ_LIB/PROJ_DATA (e.g. a native-tool variable pointing at the
+# repo's older bundled proj.db, which is still set in some recipe terminals)
+# makes the conda pyproj return (inf, inf) / no finite result for valid WGS84
+# coordinates. pyproj snapshots the data dir at IMPORT time, so neutralize the
+# pair BEFORE `import pyproj` (later, nothing reads them for this process; the
+# native exes locate their proj.db by DLL-relative path).
+for _proj_k in ("PROJ_LIB", "PROJ_DATA"):
+    os.environ.pop(_proj_k, None)
+
 import pyproj  
 
 def die(msg):

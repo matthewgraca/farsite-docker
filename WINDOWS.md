@@ -48,15 +48,17 @@ Required for the native `runfarsite.exe` / `WindNinja_cli.exe`: `GDAL_DATA` and
 exes load (the repo's `bin` stack). The conda `rasterio` reads `GDAL_DATA` fine
 (version-tolerant tables).
 
-**`PROJ_LIB` caveat:** do **not** point it at
+**`PROJ_LIB` caveat:** do **not** point `PROJ_LIB` or `PROJ_DATA` at
 `FireBehaviorModels\bin\share\proj` in the terminal that runs
 `orchestrate.py`. The repo's bundled `proj.db` predates the conda stack; with
-`PROJ_LIB` set there, conda `pyproj 3.8/PROJ 9.8` still *loads* it but quietly
-emits `(inf, inf)` for valid WGS84 coordinates — surfacing as
+either variable set there, conda `pyproj 3.8/PROJ 9.8` still *loads* it but
+quietly emits `(inf, inf)` for valid WGS84 coordinates — surfacing as
 `reprojecting to EPSG:5070 produced a non-finite vertex ... -> (inf, inf)`
-from `calfire_ignition`. The native exes locate their own `proj.db` via a
-DLL-relative path, so the global variable is not needed for them either. If a
-native tool ever genuinely needs it, set it inline for just that command
+from `calfire_ignition` (or a `no finite transform probe` error). The tools
+now neutralize both variables in-process before importing pyproj, so the
+pipeline works regardless; the native exes likewise locate their own
+`proj.db` via a DLL-relative path, so the variables are unneeded globally. If
+a native tool ever genuinely needs one, set it inline for just that command
 (`set "PROJ_LIB=..." && tool.exe ...`), never for the whole pipeline shell.
 
 `FireBehaviorModels\bin` does **not** need to be on `PATH` — the native exes

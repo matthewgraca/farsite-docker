@@ -35,9 +35,15 @@ Usage:
 import argparse
 import json
 import math
+import os
 import sys
 from io import BytesIO
 from pathlib import Path
+
+# Read by pyproj at import time; a stray PROJ_LIB/PROJ_DATA pointing at an old
+# bundled proj.db makes valid reprojections return (inf, inf).
+for _proj_k in ("PROJ_LIB", "PROJ_DATA"):
+    os.environ.pop(_proj_k, None)
 
 import numpy as np
 import pyproj

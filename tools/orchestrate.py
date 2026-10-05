@@ -23,12 +23,22 @@ nothing on disk. Config errors exit 2 (via die()); success exits 0.
 import argparse
 import json
 import math
+import os
 import shlex
 import subprocess
 import sys
 import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# A stray PROJ_LIB/PROJ_DATA (e.g. a native-tool variable pointing at the
+# repo's older bundled proj.db, which is still set in some recipe terminals)
+# makes the conda pyproj return (inf, inf) / no finite result for valid WGS84
+# coordinates. pyproj falls back to its own installed data dir when these are
+# unset, and the native exes locate their proj.db by DLL-relative path, so
+# neutralize the pair for this Python process regardless of the shell.
+for _proj_k in ("PROJ_LIB", "PROJ_DATA"):
+    os.environ.pop(_proj_k, None)
 
 from hrrr_to_wxs import die, parse_utc, resolve_timezone
 from runroot_to_atm import scan_frames, verify_atm

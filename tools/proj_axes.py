@@ -16,6 +16,14 @@ round trip back to the forward probe - no ground truth needed.
 """
 
 import math
+import os
+
+# pyproj snapshots PROJ_LIB/PROJ_DATA at import time; a stray value pointing
+# at an old bundled proj.db makes valid WGS84 coordinates reproject to
+# (inf, inf) / non-finite. Neutralize before `import pyproj`; the native exes
+# locate their own proj.db by DLL-relative path.
+for _proj_k in ("PROJ_LIB", "PROJ_DATA"):
+    os.environ.pop(_proj_k, None)
 
 import pyproj
 
@@ -61,7 +69,10 @@ class GeoProj:
             if math.isfinite(x) and math.isfinite(y):
                 return swap
         raise pyproj.exceptions.CRSError(
-            f"no finite transform probe {_CONUS} in {self.frm}->{self.to}")
+            f"no finite transform probe {_CONUS} in {self.frm}->{self.to}: "
+            "pyproj is reading a proj.db that cannot project valid WGS84 "
+            "coordinates (a stray PROJ_LIB/PROJ_DATA env var pointing at an "
+            "old bundled proj.db, or a broken conda pyproj install)")
 
     def _resolve_output_order(self):
         """Which output ordering of the reverse transform round-trips an
