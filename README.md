@@ -6,7 +6,8 @@ Run FARSITE simulations on preexisting California fires, and compare those simul
 - WindNinja CLI https://ninjastorm.firelab.org/windninja/
 
 Once downloaded, you'll need to create a conda env
-```conda create -n flammap -c conda-forge python=3.12 rasterio numpy xarray cfgrib eccodes herbie-data pyshp pyproj requests timezonefinder tzdata pandas scipy matplotlib pytest tqdm
+```
+conda create -n flammap -c conda-forge python=3.12 rasterio numpy xarray cfgrib eccodes herbie-data pyshp pyproj requests timezonefinder tzdata pandas scipy matplotlib pytest tqdm
 ```
 
 Set env variables:
@@ -16,7 +17,7 @@ set "WINDNINJA_DATA=C:\path\to\FireBehaviorModels\bin\share\windninja-data"
 ```
 # Caveats
 
-If you eccodes is borked due to Windows being a wonderful OS:
+If your eccodes is borked due to Windows being a wonderful OS:
 ```
 curl.exe -L -o "%USERPROFILE%\eccodes-2.49.0.zip" https://github.com/ecmwf/eccodes/archive/refs/tags/2.49.0.zip
 rmdir /s /q "%USERPROFILE%\.eccodes" 2>nul
@@ -29,9 +30,7 @@ set "ECCODES_SAMPLES_PATH=%USERPROFILE%\.eccodes\eccodes-2.49.0\samples"
 python -m eccodes selfcheck
 ```
 
-If you have OSGeo4W installed, it will clobber your env, killing rasterio:
-
-Kick OSGeo4W out of your path for this session:
+If you have OSGeo4W installed, it will clobber your env, killing rasterio. Kick OSGeo4W out of your path for this session:
 ```bat
 set "PATH=%PATH:C:\path\to\OSGeo4W\binaries;=%"
 ```
@@ -47,4 +46,8 @@ set "GDAL_DATA=C:\Users\mgraca\Workspace\farsite-docker\bin\share\gdal-data" && 
 ```
 
 # Config
+The config controls all of the arguments that are passed into this constellation of scripts.
+
 Make sure to edit the config to support your local environment. Wire up FARSITE and WindNinja CLI binaries! More info on usage in `docs/CONFIG.md`. If you want some examples of configs I've run, see `configs/`.
+
+![](docs/farsite-validator.drawio.png)
