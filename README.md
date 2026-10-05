@@ -54,3 +54,7 @@ The config controls all of the arguments that are passed into this constellation
 Make sure to edit the config to support your local environment. Wire up FARSITE and WindNinja CLI binaries! More info on usage in `docs/CONFIG.md`. If you want some examples of configs I've run, see `configs/`.
 
 ![](docs/farsite-validator.drawio.png)
+
+# Known Issues
+- HRRR download my just up and die. The script will tell you what files were corrupted. Delete and redownload them, and you're good.
+- FARSITE may hang. It's impossible to tell because there is no baked-in progress like with WindNinja. In my experience, if your simulations are taking more than 10 seconds, re-run FARSITE. The pipeline supports turning off portions of already-computed steps, so re-running is simple.
