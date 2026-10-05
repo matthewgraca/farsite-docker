@@ -261,10 +261,14 @@ def _attrs_for(rec, lat, lon):
 
 
 def _reproject(crs):
-    """Transformer WGS84 -> crs, or None when crs IS WGS84 (no-op path)."""
+    """WGS84 -> crs adapter (.transform(lon, lat) -> (x, y)), or None when
+    crs IS WGS84 (no-op path). Axis-order-robust: GeoProj probes whether the
+    installed pyproj honors always_xy (some Windows builds ignore it and
+    would otherwise reproject valid CONUS points to (inf, inf))."""
     if crs.to_epsg() == 4326:
         return None
-    return pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    from proj_axes import GeoProj
+    return GeoProj("EPSG:4326", crs)
 
 
 def _write_shapefile(out_dir, base, shape_type, rings_or_point, attrs, crs):
@@ -330,14 +334,22 @@ def write_polygon_shp(out_dir, geom, attrs, crs):
     t = _reproject(crs)
     if t is not None:
         proj = []
-        for ring in rings:
-            proj.append([t.transform(x, y) for x, y in ring])
-        for ri, ring in enumerate(proj):
+        for ri, ring in enumerate(rings):
+            out = []
             for j, (x, y) in enumerate(ring):
-                if not (math.isfinite(x) and math.isfinite(y)):
+                px = py = None
+                for _attempt in range(2):
+                    ox, oy = t.transform(x, y)
+                    if math.isfinite(ox) and math.isfinite(oy):
+                        px, py = ox, oy
+                        break
+                    t = _reproject(crs)   # a fresh init can clear a one-off glitch
+                if px is None:
                     die(f"reprojecting to {crs.to_string()} produced a non-finite "
                         f"vertex ring {ri} pt {j}: source WGS84 "
-                        f"{rings[ri][j]} -> ({x!r}, {y!r})")
+                        f"{rings[ri][j]} -> ({ox!r}, {oy!r})")
+                out.append((px, py))
+            proj.append(out)
         rings = proj
     _write_shapefile(out_dir, "reference_perimeter", shapefile.POLYGON,
                      rings, attrs, crs)

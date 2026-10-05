@@ -50,3 +50,41 @@ def test_nonfinite_vertex_dies_before_writing(monkeypatch, tmp_path):
     with pytest.raises(SystemExit):
         write_polygon_shp(Path(tmp_path), geom, ATTRS, CRS.from_epsg(5070))
     assert "ring 1 pt 1" in calls[0] and "inf" in calls[0]
+
+
+def test_reproject_retries_once_and_succeeds(monkeypatch, tmp_path):
+    from pyproj import Transformer
+
+    real = Transformer.from_crs("EPSG:4326", "EPSG:5070", always_xy=True)
+    calls = []
+    state = {"infs_left": 1}                 # one-shot global glitch
+    def flaky_crs(crs):
+        calls.append(crs)
+        def go(self, x, y):
+            if state["infs_left"] > 0:
+                state["infs_left"] -= 1
+                return float("inf"), float("inf")
+            return real.transform(x, y)
+        return type("T", (), {"transform": go})()
+    monkeypatch.setattr("calfire_ignition._reproject", flaky_crs)
+    geom = {"type": "Polygon",
+            "coordinates": [[(0, 0), (0, 1), (1, 1), (1, 0), (0, 0)]]}
+    write_polygon_shp(Path(tmp_path), geom, ATTRS, CRS.from_epsg(5070))
+    assert len(calls) == 2                   # initial + retry with a fresh init
+    assert (tmp_path / "reference_perimeter.shp").is_file()
+
+
+def test_reproject_persistently_infinite_dies(monkeypatch, tmp_path):
+    """A transformer that NEVER yields a finite result must still abort with the
+    reprojection attribution (never silently write an inf-laced .shp)."""
+    class _AlwaysInf:
+        def transform(self, x, y):
+            return float("inf"), float("inf")
+    monkeypatch.setattr("calfire_ignition._reproject", lambda crs: _AlwaysInf())
+    monkeypatch.setattr("calfire_ignition.die",
+                        lambda m: (_ for _ in ()).throw(SystemExit(2)))
+    geom = {"type": "Polygon",
+            "coordinates": [[(-122, 37), (-122, 38), (-121, 38),
+                             (-121, 37), (-122, 37)]]}
+    with pytest.raises(SystemExit):
+        write_polygon_shp(Path(tmp_path), geom, ATTRS, CRS.from_epsg(5070))

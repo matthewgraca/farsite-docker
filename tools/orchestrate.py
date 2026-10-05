@@ -187,14 +187,15 @@ def _reference_bbox(ref_shp, target_crs=_LFPS_CRS, margin="auto"):
     landscape edge). Expansion happens in `target_crs` meters; the expanded
     rectangle's corners are then transformed to WGS84 for LFPS.
     """
-    from pyproj import CRS, Transformer
+    from pyproj import CRS
+    from proj_axes import GeoProj
 
     x0, y0, x1, y1 = _expanded_projected_bounds(ref_shp, target_crs, margin)
     tgt = CRS.from_user_input(target_crs)
-    to_geo = Transformer.from_crs(tgt, "EPSG:4326", always_xy=True)
+    to_geo = GeoProj(tgt, "EPSG:4326")   # axis-robust (always_xy quirks)
     lons, lats = [], []
     for px, py in ((x0, y0), (x1, y0), (x0, y1), (x1, y1)):
-        lon, lat = to_geo.transform(px, py)
+        lon, lat = to_geo.to_lonlat(px, py)
         lons.append(float(lon))
         lats.append(float(lat))
     bbox = (min(lons), min(lats), max(lons), max(lats))
@@ -474,6 +475,7 @@ def ensure_ignition_burnable(lcp, ign_shp, fire_json, *,
     import numpy as np
     import shapefile
     from pyproj import CRS, Transformer
+    from proj_axes import GeoProj
 
     ign_shp = respath(ign_shp)
     fire_json = respath(fire_json)
@@ -511,8 +513,8 @@ def ensure_ignition_burnable(lcp, ign_shp, fire_json, *,
         def _burnable(v):
             return not (v == nod or v in _NB_FUEL_MODELS)
 
-        geo = Transformer.from_crs(lcp_crs, "EPSG:4326", always_xy=True)
-        lon, lat = geo.transform(x, y)
+        to_wgs = GeoProj(lcp_crs, "EPSG:4326")   # axis-robust lon/lat out
+        lon, lat = to_wgs.to_lonlat(x, y)
         rec = _base(seed_fuel=seed_fuel, seed_pixel=(py, px) if inb else None,
                     seed_latlon={"lat": lat, "lon": lon})
         if _burnable(seed_fuel):
@@ -555,7 +557,7 @@ def ensure_ignition_burnable(lcp, ign_shp, fire_json, *,
         npy, npx = best
         nx2, ny2 = ds.xy(npy, npx)
         off_m = float(((nx2 - x) ** 2 + (ny2 - y) ** 2)) ** 0.5
-        nlon, nlat = geo.transform(nx2, ny2)
+        nlon, nlat = to_wgs.to_lonlat(nx2, ny2)
         rec = _base(seed_fuel=seed_fuel, burnable=False, adjusted=True,
                     offset_m=off_m, seed_pixel=(py, px) if inb else None,
                     seed_latlon={"lat": lat, "lon": lon},
@@ -640,7 +642,8 @@ def ensure_ignition_within_perimeter(fire_json, ref_shp, *,
     dry=True, so the caller can abort showing the user where the seed sits.
     """
     import shapefile
-    from pyproj import CRS, Transformer
+    from pyproj import CRS
+    from proj_axes import GeoProj
     from shapely.geometry import Point
 
     fire_json = respath(fire_json)
@@ -663,7 +666,7 @@ def ensure_ignition_within_perimeter(fire_json, ref_shp, *,
     if not (isinstance(lat, (int, float)) and isinstance(lon, (int, float))
             and math.isfinite(lat) and math.isfinite(lon)):
         return None  # a bogus origin has nothing to check against
-    to_ref = Transformer.from_crs("EPSG:4326", ref_crs, always_xy=True)
+    to_ref = GeoProj("EPSG:4326", ref_crs)   # axis-robust (always_xy quirks)
     rec = {"lat": float(lat), "lon": float(lon),
            "crs": ref_crs.to_epsg() or ref_crs.to_string()}
     try:
@@ -679,8 +682,7 @@ def ensure_ignition_within_perimeter(fire_json, ref_shp, *,
         return rec
 
     nb = boundary.interpolate(boundary.project(p))
-    to_wgs = Transformer.from_crs(ref_crs, "EPSG:4326", always_xy=True)
-    nlon, nlat = to_wgs.transform(nb.x, nb.y)
+    nlon, nlat = GeoProj(ref_crs, "EPSG:4326").to_lonlat(nb.x, nb.y)
     rec["nearest_lat"], rec["nearest_lon"] = float(nlat), float(nlon)
     rec["tolerance_m"] = float(tolerance_m)
     if not dry and plot_path is not None:
