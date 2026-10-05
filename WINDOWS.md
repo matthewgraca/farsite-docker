@@ -20,54 +20,59 @@ Activate with `conda activate flammap`.
 
 ## Binary runtime environment
 
-The orchestrator's subprocesses inherit the parent shell's environment, so the
-native binaries need their runtime variables in **the same terminal** that
-launches `orchestrate.py`. Either run `FireBehaviorModels\SetEnv.bat` in that
-terminal (**note:** `SetEnv.bat` also sets `PROJ_LIB` to the repo share — see
-the caveat below; in the pipeline terminal, launch `orchestrate.py` with the
-two `set` lines instead, or `set "PROJ_LIB="` after sourcing it), or set the
-data variables yourself:
+`orchestrate.py` now **self-supplies the native runtime variables**: its
+Python stages neutralize `PROJ_LIB`/`PROJ_DATA` in-process (a stray value
+pointing at the repo's older proj.db makes the conda pyproj reproject valid
+WGS84 points to `(inf, inf)`), while the `runfarsite`/`WindNinja` subprocesses
+get exactly `GDAL_DATA`, `WINDNINJA_DATA`, `PROJ_LIB`, and `PROJ_DATA`
+re-injected from `FireBehaviorModels\bin\share\...` (computed from the repo
+layout, independent of the shell). **So the pipeline terminal does not need any
+of these variables** - the only requirement is `conda activate flammap`.
+
+If you run the native binaries *manually* (outside the pipeline), give them
+the repo data dirs yourself — either `FireBehaviorModels\SetEnv.bat`
+(**note:** it prepends `bin` to `PATH`, which can shadow the conda GDAL DLLs;
+fine for a native-only shell, not the pipeline shell) or these:
 
 | Variable | Value |
 |---|---|
-| `PATH` | *(not required)* — the exes load their DLL family from their own directory; prepending `bin` can shadow the conda GDAL DLLs (see note below) |
+| `PATH` | *(not required)* — the exes load their DLL family from their own directory |
 | `GDAL_DATA` | `FireBehaviorModels\bin\share\gdal-data` |
-| `PROJ_LIB` | **do NOT set for the pipeline terminal** (see below) |
+| `PROJ_LIB` | `FireBehaviorModels\bin\share\proj` |
+| `PROJ_DATA` | `FireBehaviorModels\bin\share\proj` |
 | `WINDNINJA_DATA` | `FireBehaviorModels\bin\share\windninja-data` |
 
-cmd equivalent (paths under `C:\path\to`):
+cmd equivalent (paths under `C:\path\to`) for a manual native-run terminal:
 
 ```bat
 set "GDAL_DATA=C:\path\to\FireBehaviorModels\bin\share\gdal-data"
+set "PROJ_LIB=C:\path\to\FireBehaviorModels\bin\share\proj"
+set "PROJ_DATA=C:\path\to\FireBehaviorModels\bin\share\proj"
 set "WINDNINJA_DATA=C:\path\to\FireBehaviorModels\bin\share\windninja-data"
-rem Intentionally NO "set PROJ_LIB=..." here - see the PROJ_LIB note below.
 ```
 
-Required for the native `runfarsite.exe` / `WindNinja_cli.exe`: `GDAL_DATA` and
-`WINDNINJA_DATA` point at the repo's **native** data and must match the DLLs the
-exes load (the repo's `bin` stack). The conda `rasterio` reads `GDAL_DATA` fine
-(version-tolerant tables).
-
-**`PROJ_LIB` caveat:** do **not** point `PROJ_LIB` or `PROJ_DATA` at
-`FireBehaviorModels\bin\share\proj` in the terminal that runs
-`orchestrate.py`. The repo's bundled `proj.db` predates the conda stack; with
-either variable set there, conda `pyproj 3.8/PROJ 9.8` still *loads* it but
-quietly emits `(inf, inf)` for valid WGS84 coordinates — surfacing as
-`reprojecting to EPSG:5070 produced a non-finite vertex ... -> (inf, inf)`
-from `calfire_ignition` (or a `no finite transform probe` error). The tools
-now neutralize both variables in-process before importing pyproj, so the
-pipeline works regardless; the native exes likewise locate their own
-`proj.db` via a DLL-relative path, so the variables are unneeded globally. If
-a native tool ever genuinely needs one, set it inline for just that command
-(`set "PROJ_LIB=..." && tool.exe ...`), never for the whole pipeline shell.
+These point at the repo's **native** data and must match the DLLs the exes load
+(the repo's `bin` stack).
+…
+**`PROJ_LIB`/`PROJ_DATA` caveat:** neither may point at
+`FireBehaviorModels\bin\share\proj` in the terminal that runs the *Python*
+stages: the repo's bundled `proj.db` predates the conda stack, and with either
+variable set there the conda `pyproj 3.8/PROJ 9.8` quietly emits `(inf, inf)`
+for valid WGS84 coordinates — `reprojecting to EPSG:5070 produced a
+non-finite vertex ... -> (inf, inf)` / `no finite transform probe`. The tools
+now neutralize both in-process before importing pyproj, and `orchestrate.py`
+re-injects them **only into the native subprocesses** (`runfarsite`/`WindNinja`,
+which do need them — the repo's GDAL reads proj.db from these). So the
+pipeline works with a bare `conda activate flammap`; only manual native runs
+need the four vars above.
 
 `FireBehaviorModels\bin` does **not** need to be on `PATH` — the native exes
 resolve their sibling DLLs from their own directory. Prepending `bin` to `PATH`
 in the same terminal as the Python pipeline can shadow the conda GDAL DLLs and
 break `rasterio` imports ("DLL load failed ... procedure not found" — the same
 class as an OSGeo4W-on-PATH clash). `FireBehaviorModels\SetEnv.bat` does prepend
-`bin`; that is fine in a `runfarsite`-only shell, but prefer the three `set`
-lines above in the terminal that launches `orchestrate.py`.
+`bin`; that is fine in a `runfarsite`-only shell, but the pipeline terminal
+needs no data variables at all.
 
 ## OSGeo4W dll clobbering
 If you have OSGeo4W, it will compete with your conda environment's dlls, causing 

@@ -46,6 +46,27 @@ from runroot_to_atm import scan_frames, verify_atm
 TOOL_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TOOL_DIR.parent
 
+
+def _native_env():
+    """os.environ + the repo's bundled GDAL/PROJ/WindNinja data variables.
+
+    The Python stages deliberately neutralize PROJ_LIB/PROJ_DATA in-process
+    (a stray value pointing at the repo's older proj.db breaks conda pyproj
+    transforms into (inf, inf)), but the native binary children - runfarsite,
+    WindNinja - need exactly those data dirs (their bundled GDAL reads
+    proj.db from them). Compute them from the repo layout so the pipeline is
+    independent of terminal state; passing this env to a native subprocess
+    restores what Python couldn't safely inherit.
+    """
+    env = dict(os.environ)
+    share = REPO_ROOT / "FireBehaviorModels" / "bin" / "share"
+    for var, sub in (("PROJ_LIB", "proj"), ("PROJ_DATA", "proj"),
+                     ("GDAL_DATA", "gdal-data"),
+                     ("WINDNINJA_DATA", "windninja-data")):
+        env[var] = str(share / sub)
+    return env
+
+
 # Default FARSITE 1-hr fuel-moisture tuple (verified sample block):
 #  Model F1 F10 F100 FMLiveHerb FMLiveWoody
 _FUEL_MOISTURE_DEFAULTS = "6 7 8 60 90 16"
@@ -771,7 +792,7 @@ class Runner:
         self.wxs = None
 
     # ------------------------------------------------------------------ io --
-    def run_cmd(self, stage, argv, *, cwd=None):
+    def run_cmd(self, stage, argv, *, cwd=None, native=False):
         argv = [str(a) for a in argv]
         cwd = cwd or REPO_ROOT
         if self.dry:
@@ -780,7 +801,11 @@ class Runner:
             return
         print(f"\n[stage: {stage}]")
         print(f"  $ {' '.join(argv)}   (cwd: {cwd})")
-        r = subprocess.run(argv, cwd=cwd)
+        # native binaries (runfarsite / WindNinja) need the repo's bundled
+        # GDAL/PROJ data, which the Python stages deliberately must NOT see
+        # (a stray PROJ_LIB/PROJ_DATA breaks conda pyproj transforms) - give
+        # each child exactly the env it needs.
+        r = subprocess.run(argv, cwd=cwd, env=_native_env() if native else None)
         if r.returncode != 0:
             die(f"stage '{stage}' failed (rc={r.returncode}): {' '.join(argv)}")
 
@@ -1055,7 +1080,8 @@ class Runner:
                       f"{command} {cfg_path}"
                       f" (pair verification skipped in dry-run)")
                 return
-            self.run_cmd("windninja", [*split_command(command), str(cfg_path)])
+            self.run_cmd("windninja", [*split_command(command), str(cfg_path)],
+                         native=True)
             if not scan_frames(self.wind_root):
                 die(f"no pairs produced under {self.wind_root} after running "
                     f"{command}; run WindNinja manually and re-run")
@@ -1219,7 +1245,9 @@ class Runner:
             die("farsite.enable=true with farsite.run=true requires [farsite] "
                 "command (e.g. wine C:/.../runfarsite.exe)")
         cwd = respath(far["cwd"]) if far.get("cwd") else REPO_ROOT
-        self.run_cmd("farsite-run", [*split_command(command), str(cmd_path)], cwd=cwd)
+        self.run_cmd("farsite-run",
+                     [*split_command(command), str(cmd_path)], cwd=cwd,
+                     native=True)
         print(f"farsite done; outputs base: {self.out_base.resolve()}")
 
     # ---------------------------------------------------- stage 4b ----

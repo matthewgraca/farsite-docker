@@ -409,3 +409,30 @@ def test_integration_live_hrrr_assembly(tmp_path):
     assert "FARSITE_START_TIME: 1 6 1600" in text       # 00:00Z - 8h standard
     assert "RAWS: 1" in text                             # single-hour window
     shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_native_spawn_env_adds_repo_data_dirs(monkeypatch):
+    """Native children (runfarsite/WindNinja) must get the repo's bundled
+    GDAL/PROJ data dirs in their env - which the Python stages deliberately
+    neutralize in-process because a stray PROJ_LIB/PROJ_DATA breaks conda
+    pyproj transforms into (inf, inf)."""
+    import orchestrate as o
+
+    captured = {}
+    def fake_run(argv, cwd=None, env=None):
+        captured["env"], captured["argv"] = env, argv
+        return type("R", (), {"returncode": 0})()
+    monkeypatch.setattr(o.subprocess, "run", fake_run)
+
+    runner = o.Runner({}, dry=False)
+    runner.run_cmd("farsite-run", ["runfarsite.exe", "inputs.txt"], native=True)
+    assert captured["env"] is not None
+    proj_dir = o.REPO_ROOT / "FireBehaviorModels" / "bin" / "share" / "proj"
+    assert Path(captured["env"]["PROJ_LIB"]) == proj_dir
+    assert Path(captured["env"]["PROJ_DATA"]) == proj_dir
+    assert Path(captured["env"]["GDAL_DATA"]) == \
+        o.REPO_ROOT / "FireBehaviorModels" / "bin" / "share" / "gdal-data"
+
+    runner.run_cmd("fire", [str(o.REPO_ROOT / "tools" / "calfire_ignition.py")])
+    assert captured["env"] is None      # python children inherit the clean env
+
