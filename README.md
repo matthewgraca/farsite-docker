@@ -41,7 +41,7 @@ set "PATH=%PATH:C:\Users\mgraca\AppData\Local\Programs\OSGeo4W\bin;=%"
 ```
 
 When all is said and done, this is what I personally run to prep the environment:
-```
+```bat
 set "GDAL_DATA=C:\Users\mgraca\Workspace\farsite-docker\bin\share\gdal-data" && set "WINDNINJA_DATA=C:\Users\mgraca\Workspace\farsite-docker\bin\share\windninja-data" && set "PATH=%PATH:C:\Users\mgraca\AppData\Local\Programs\OSGeo4W\bin;=%" && set "ECCODES_DEFINITION_PATH=%USERPROFILE%\.eccodes\eccodes-2.49.0\definitions" && set "ECCODES_SAMPLES_PATH=%USERPROFILE%\.eccodes\eccodes-2.49.0\samples"
 ```
 
