@@ -64,8 +64,56 @@ def test_broken_always_xy_build_still_transforms_correctly(monkeypatch):
     monkeypatch.setattr(proj_axes.pyproj.Transformer, "from_crs",
                         staticmethod(_broken_from_crs(real_fwd, real_rev)))
     gp_in = GeoProj("EPSG:4326", "EPSG:5070")
-    assert gp_in._swap_in is True          # probe detected the broken build
+    assert gp_in._fwd_swap is True         # probe detected the broken build
     x, y = gp_in.transform(*CORRAL)
+    assert (x, y) == pytest.approx(CORRAL_5070, abs=1.0)
+
+    gp_out = GeoProj("EPSG:5070", "EPSG:4326")
+    lon, lat = gp_out.to_lonlat(*CORRAL_5070)
+    assert (lon, lat) == pytest.approx(CORRAL, abs=1e-5)
+
+
+def _always_xy_dead_factory(real_fwd, real_rev):
+    """The actual Windows scenario: the always_xy=True transformer returns
+    (inf, inf) in BOTH input orders, while the plain (always_xy=False)
+    transformer works with EPSG-native (lat, lon) input and (lat, lon) output."""
+    def factory(frm, too, always_xy=False, **kw):
+        frm = pyproj.CRS.from_user_input(frm)
+        too = pyproj.CRS.from_user_input(too)
+        if always_xy:
+            class Dead:
+                def transform(self, a, b):
+                    return float("inf"), float("inf")
+            return Dead()
+        if frm.is_geographic and too.is_projected:
+            class T:
+                def transform(self, lat, lon):
+                    return real_fwd.transform(lon, lat)
+            return T()
+        if frm.is_projected and too.is_geographic:
+            class T:
+                def transform(self, x, y):
+                    lo, la = real_rev.transform(x, y)
+                    return la, lo
+            return T()
+        return pyproj.Transformer.from_crs(frm, too, always_xy=always_xy, **kw)
+    return factory
+
+
+def test_always_xy_dead_build_falls_back_to_plain_transformer(monkeypatch):
+    """Regression for the user's Windows conda pyproj: always_xy=True emits
+    (inf, inf) in both orders; GeoProj must pick the working no-flag
+    transformer and still produce correct (lon, lat) semantics."""
+    real_fwd = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:5070",
+                                           always_xy=True)
+    real_rev = pyproj.Transformer.from_crs("EPSG:5070", "EPSG:4326",
+                                           always_xy=True)
+    monkeypatch.setattr(proj_axes.pyproj.Transformer, "from_crs",
+                        staticmethod(_always_xy_dead_factory(real_fwd,
+                                                             real_rev)))
+    gp = GeoProj("EPSG:4326", "EPSG:5070")
+    assert gp._fwd_swap is True            # fell back to native (lat, lon) in
+    x, y = gp.transform(*CORRAL)
     assert (x, y) == pytest.approx(CORRAL_5070, abs=1.0)
 
     gp_out = GeoProj("EPSG:5070", "EPSG:4326")
