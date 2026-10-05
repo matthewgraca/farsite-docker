@@ -1,0 +1,114 @@
+[fire]
+enable = false			# false => reuse [fire] fire_json, nothing runs
+name = "Post"                 # CAL FIRE name (case-insensitive), REQUIRED when enabled
+year = 2024                   # fire YEAR_ filter; REQUIRED (pins the run dir)
+inc = "LAC 00205253"
+# lat = 34.06778              # optional manual ignition WGS84; give BOTH to skip
+# lon = -118.55112            #   the IRWIN/WFIGS lookup
+# crs = "EPSG:32611"          # optional shapefile CRS; default = LCP CRS, so the
+                              #   ignition seed matches FARSITE's landscape
+# fire_json = "…/fire.json"  # output fire.json (default <run_dir>/fire.json), or
+	      		      #   required input path when enable=false
+fire_json = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\Validation\\Post2024\\fire.json"
+
+[landscape]
+enable =  false			# true => ingest_landscape (LFPS) -> <run>/landscape.tif
+#lcp = "test/data/palisades.tif"  # reuse path when enable=false (the repo PALISADES LCP)
+lcp = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\Validation\\Post2024\\landscape.tif"
+bbox_from = "reference"
+bbox_margin_m = "auto"
+# mapzone = null                     #   required when enable=true
+email = "mgraca@calstatela.edu"    # LFPS requester email, required when enable=true
+version = 2024                # LANDFIRE release for the annual fuel/canopy bands
+fuel_model = "fbfm40"         # fbfm40 | fbfm13 (band 4 = fuel model)
+resolution = 30               # m; 30 = native LANDFIRE (LFPS only coarsens)
+#dem_out = "…/elev.tif"      # optional single-band elevation GeoTIFF (WindNinja);
+                              #   default <run>/<slug>-dem.tif (band-1 extraction)
+
+[simulation]
+start = "2024-06-15T20:00"    # UTC whole hour greenwich-fixed time e.g. "2025-01-07T00:00"
+end = "2024-06-18T02:00"      # UTC whole hour
+row_timezone = "America/Los_Angeles"  # IANA; null => derived from the ignition point
+lead_days = 3                 # conditioning DAYS of meteorology prepended before start
+                              #   (hrrr downloads+emits them as leading RAWS rows; FARSITE
+                              #   conditions fuels from the pre-start weather stream - the
+                              #   repo sample runs ~3 days lead; FARSITE convention is 3-7).
+burn_periods = [
+	["2024-06-15T20:00", "2024-06-16T03:00"],
+	["2024-06-16T20:00", "2024-06-17T03:00"],
+	["2024-06-17T20:00", "2024-06-18T01:00"]
+]   			      # UTC whole-hour burn windows [start, end] instants; converted internally to
+                              #   FARSITE per-day 'M D HHMM HHMM' on the fire-local
+                              #   STANDARD clock - each night here = local 09:00..19:00
+                              #   America/Los_Angeles.
+
+[windninja]
+enable = false			# false => reuse existing grids in run_root (no cfg/run)
+command = "C:\\WindNinja\\WindNinja-4.0.0\\bin\\WindNinja_cli.exe"                  
+			      # e.g. "wine C:/.../WindNinja_cli.exe" (Linux/WSL) or native
+                              #   Windows "C:\\...\\WindNinja_cli.exe"; a path with spaces
+                              #   must be double-quoted (quotes honored, backslashes literal).
+                              #   EMPTY => write <run>/windroot/<slug>.cfg
+                              #   and print the manual command; the .atm find stage then
+                              #   pauses the run until WindNinja has produced its outputs
+                              #   (re-run with the same --config to resume).
+# run_root = "…/windroot"      # dir of per-hour _vel.asc/_ang.asc pairs + the
+                              #   .atm + the .cfg; default <run>/windroot
+threads = 6                   # num_threads for the WindNinja CLI
+mesh_m = 180
+[windninja.options]           # passthrough of WindNinja cfg keys (full CLI vocabulary)
+initialization_method = "wxModelInitialization"   # REQUIRED
+wx_model_type = "PASTCAST-GCP-HRRR-CONUS-3-KM"    # wx-model source (or forecast_filename)
+vegetation = "brush"
+input_wind_height = 10.0
+units_input_wind_height = "ft"
+output_wind_height = 20.0
+units_output_wind_height = "ft"
+output_speed_units = "mph"
+diurnal_winds = "true"
+
+[weather]
+enable = false			# false => reuse an existing wxs ([weather] wxs required)
+# wxs = "…/<slug>-hrrr.wxs"   # reuse path when enable=false
+wxs = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\Validation\\Post2024\\post-hrrr.wxs"
+# cache_dir = "…/.cache/hrrr"  # default FireBehaviorModels/.cache/hrrr
+threads = 4                   # Phase-A download threads
+elevation_tol_ft = 500        # elevation-match tolerance when sampling the HRRR cell
+
+[farsite]
+enable = true                 # false => neither assembly nor runfarsite
+run = true		      # true => invoke runfarsite (needs [farsite] command);
+                              #   false => assemble the inputs + command files only
+command = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\bin\\runfarsite.exe"                  
+			      # e.g. "wine C:/.../runfarsite.exe" (Linux/WSL) or native
+                              #   Windows "C:\\...\\FireBehaviorModels\\bin\\runfarsite.exe";
+                              #   a path with spaces must be double-quoted (quotes honored,
+                              #   backslashes literal). empty + run=true => error
+# cwd = null                  # CWD for runfarsite; default repo root (its DLL/PATH needs
+                              #   FireBehaviorModels/bin; see docs/FARSITE-CLI.md)
+barrier = "0"                 # barrier shapefile path, or "0" for none
+# out_base = "…/farsite-out/<slug>"  # FARSITE output base (no extension); default
+                              #   <run>/farsite-out/<slug>
+outputs_type = 2              # 0 = both ASCII+GeoTIFF, 1 = ASCII, 2 = GeoTIFF
+timestep = 60
+distance_res = 30
+perimeter_res = 60
+spot_grid_resolution = 10
+spot_probability = 0.02
+spot_ignition_delay = 0
+minimum_spot_distance = 30
+acceleration_on = 1
+fill_barriers = 0
+foliar_moisture_content = 100.0
+crown_fire_method = "Finney"   # Finney | ScottReinhardt
+# optional per-model override: default = derived from LCP band 4 (distinct
+# models + 0), each with the sample tuple "6 7 8 60 90 16"
+#[farsite.fuel_moistures]
+#0   = "6 7 8 60 90 16"
+#122 = "6 7 8 60 90 16"
+
+[output]
+run_dir = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\Validation\\Post2024"
+# run_dir = "…/my-run"         # all generated artifacts; default:
+                              #   fire.enable=true  -> FireBehaviorModels/SampleData/<year>_<slug>
+                              #   fire.enable=false -> fire.fire_json's parent

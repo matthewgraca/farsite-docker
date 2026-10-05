@@ -1,5 +1,5 @@
 [fire]
-enable = true		      # false => reuse [fire] fire_json, nothing runs
+enable = false		      # false => reuse [fire] fire_json, nothing runs
 name = "Palisades"            # CAL FIRE name (case-insensitive), REQUIRED when enabled
 year = 2025                   # fire YEAR_ filter; REQUIRED (pins the run dir)
 # index = 0                   # optional 0-based disambiguation for repeated names
@@ -9,11 +9,12 @@ year = 2025                   # fire YEAR_ filter; REQUIRED (pins the run dir)
                               #   ignition seed matches FARSITE's landscape
 # fire_json = "…/fire.json"  # output fire.json (default <run_dir>/fire.json), or
 	      		      #   required input path when enable=false
+fire_json = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\Validation\\fire.json"
 
 [landscape]
-enable =  true 		      # true => ingest_landscape (LFPS) -> <run>/landscape.tif
+enable =  false 		      # true => ingest_landscape (LFPS) -> <run>/landscape.tif
 #lcp = "test/data/palisades.tif"  # reuse path when enable=false (the repo PALISADES LCP)
-#lcp = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\SampleData\\2025_palisades\\landscape.tif"
+lcp = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\Validation\\landscape.tif"
 bbox = "-118.7 33.9 -118.4 34.2"   # 'W S E N' WGS84; mutually exclusive w/ mapzone,
 # mapzone = null                     #   required when enable=true
 email = "mgraca@calstatela.edu"    # LFPS requester email, required when enable=true
@@ -35,14 +36,15 @@ burn_periods = [
 	["2025-01-07T17:00", "2025-01-08T03:00"],
 	["2025-01-08T17:00", "2025-01-09T03:00"],
 	["2025-01-09T17:00", "2025-01-10T03:00"],
-	["2025-01-10T17:00", "2025-01-11T03:00"]
+	["2025-01-10T17:00", "2025-01-11T03:00"],
+	["2025-01-11T17:00", "2025-01-12T03:00"]
 ]   			      # UTC whole-hour burn windows [start, end] instants; converted internally to
                               #   FARSITE per-day 'M D HHMM HHMM' on the fire-local
                               #   STANDARD clock - each night here = local 09:00..19:00
                               #   America/Los_Angeles.
 
 [windninja]
-enable = true		      # false => reuse existing grids in run_root (no cfg/run)
+enable = false		      # false => reuse existing grids in run_root (no cfg/run)
 command = "C:\\WindNinja\\WindNinja-4.0.0\\bin\\WindNinja_cli.exe"                  
 			      # e.g. "wine C:/.../WindNinja_cli.exe" (Linux/WSL) or native
                               #   Windows "C:\\...\\WindNinja_cli.exe"; a path with spaces
@@ -53,7 +55,8 @@ command = "C:\\WindNinja\\WindNinja-4.0.0\\bin\\WindNinja_cli.exe"
                               #   (re-run with the same --config to resume).
 # run_root = "…/windroot"      # dir of per-hour _vel.asc/_ang.asc pairs + the
                               #   .atm + the .cfg; default <run>/windroot
-threads = 2                   # num_threads for the WindNinja CLI
+threads = 6                   # num_threads for the WindNinja CLI
+mesh_m = 180
 [windninja.options]           # passthrough of WindNinja cfg keys (full CLI vocabulary)
 initialization_method = "wxModelInitialization"   # REQUIRED
 wx_model_type = "PASTCAST-GCP-HRRR-CONUS-3-KM"    # wx-model source (or forecast_filename)
@@ -66,9 +69,9 @@ output_speed_units = "mph"
 diurnal_winds = "true"
 
 [weather]
-enable = true 		    # false => reuse an existing wxs ([weather] wxs required)
+enable = false 		    # false => reuse an existing wxs ([weather] wxs required)
 # wxs = "…/<slug>-hrrr.wxs"   # reuse path when enable=false
-# wxs = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\SampleData\\2025_palisades\\palisades-hrrr.wxs"
+wxs = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\Validation\\palisades-hrrr.wxs"
 # cache_dir = "…/.cache/hrrr"  # default FireBehaviorModels/.cache/hrrr
 threads = 4                   # Phase-A download threads
 elevation_tol_ft = 500        # elevation-match tolerance when sampling the HRRR cell
@@ -92,7 +95,8 @@ timestep = 60
 distance_res = 30
 perimeter_res = 60
 spot_grid_resolution = 10
-spot_probability = 0.05
+#spot_probability = 0.05
+spot_probability = 0.1
 spot_ignition_delay = 0
 minimum_spot_distance = 30
 acceleration_on = 1
