@@ -6,19 +6,19 @@ Run FARSITE simulations on preexisting California fires, and compare those simul
 - WindNinja CLI https://ninjastorm.firelab.org/windninja/
 
 Once downloaded, you'll need to create a conda env
-```
+```bat
 conda create -n flammap -c conda-forge python=3.12 rasterio numpy xarray cfgrib eccodes herbie-data pyshp pyproj requests timezonefinder tzdata pandas scipy matplotlib pytest tqdm
 ```
 
 Set env variables:
-```
+```bat
 set "GDAL_DATA=C:\path\to\FireBehaviorModels\bin\share\gdal-data"
 set "WINDNINJA_DATA=C:\path\to\FireBehaviorModels\bin\share\windninja-data"
 ```
 # Caveats
 
 If your eccodes is borked due to Windows being a wonderful OS:
-```
+```bat
 curl.exe -L -o "%USERPROFILE%\eccodes-2.49.0.zip" https://github.com/ecmwf/eccodes/archive/refs/tags/2.49.0.zip
 rmdir /s /q "%USERPROFILE%\.eccodes" 2>nul
 python -c "import zipfile; z=zipfile.ZipFile(r'%USERPROFILE%\eccodes-2.49.0.zip'); z.extractall(r'%USERPROFILE%\.eccodes'); print('entries:', len(z.namelist()))"
