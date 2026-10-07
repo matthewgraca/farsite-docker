@@ -179,7 +179,7 @@ def test_stage_ignition_dies_with_visualization_point(tmp_path):
         "windninja": {"enable": False, "run_root": str(tmp_path / "windroot")},
         "weather": {"enable": False,
                     "wxs": str(DATA / "palisades-hrrr.wxs")},
-        "farsite": {"enable": False, "run": False},
+        "farsite": {"enable": False},
     })
     with pytest.raises(SystemExit) as exc:
         main(["--config", str(cfg)])

@@ -397,17 +397,19 @@ a partial/network failure):
    --out <run>/<slug>-hrrr.wxs`; the wind-coverage gate governs the burn window
    (conditioning lead hours need no WindNinja outputs). `enable=false` reuses
    `[weather] wxs`.
-7. **farsite-assemble** — writes `<run>/<slug>-FarsiteInputs.txt`
-   (fuel-moisture block derived from the LCP band-4 distinct models + 0,
-   sample tuple `6 7 8 60 90 16`, overridable per-model via
-   `[farsite.fuel_moistures]`; burn periods; local start/end; the `.wxs` rows as
-   the `RAWS:` block; `FARSITE_ATM_FILE:` = the native `.atm`) and a single-line
-   `<run>/<slug>-FarsiteCmd.txt` of absolute paths.
-8. **farsite-run** — `runfarsite` when `[farsite] run=true` (requires
-   `[farsite] command`, e.g. `wine C:/.../runfarsite.exe`); `run=false` assembles
-   only; `enable=false` skips even assembly (prior inputs/command files are left
-   untouched, so a hand-edited `-FarsiteInputs.txt` survives a resumed `run=true`
-   pass).
+7. **farsite-assemble** — `[farsite] enable=true` writes
+   `<run>/<slug>-FarsiteInputs.txt` (fuel-moisture block derived from the LCP
+   band-4 distinct models + 0, sample tuple `6 7 8 60 90 16`, overridable
+   per-model via `[farsite.fuel_moistures]`; burn periods; local start/end;
+   the `.wxs` rows as the `RAWS:` block; `FARSITE_ATM_FILE:` = the native
+   `.atm`) and a single-line `<run>/<slug>-FarsiteCmd.txt` of absolute paths.
+8. **farsite-read** — `[farsite] enable=false` locates + verifies the existing
+   `-FarsiteInputs`/`-FarsiteCmd` from a prior assemble pass and uses them
+   byte-for-byte (fails loudly if missing; created files are never touched).
+9. **farsite-run** — runs `runfarsite` when `[farsite] command` is set (native
+   env injected with the repo data dirs), on the fresh (enable=true) or
+   existing (enable=false) command file. Empty `command` writes/reads the
+   files only — run `<slug>-FarsiteCmd.txt` yourself for hand-drive.
 
 Notes:
 - The `.wxs` rows, `.atm` rows, and burn periods are all on the fire-local

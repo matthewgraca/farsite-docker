@@ -89,7 +89,7 @@ _DEFAULTS = {
                   "options": {}, "mesh_m": None},
     "weather": {"enable": True, "wxs": None, "cache_dir": None, "threads": 8,
                 "elevation_tol_ft": 500},
-    "farsite": {"enable": True, "run": True, "command": "", "cwd": None,
+    "farsite": {"enable": True, "command": "", "cwd": None,
                 "barrier": "0", "out_base": None, "outputs_type": 2,
                 "timestep": 60, "distance_res": 30, "perimeter_res": 60,
                 "spot_grid_resolution": 15, "spot_probability": 0.035,
@@ -111,7 +111,7 @@ _SECTION_KEYS = {
     "simulation": ("start", "end", "row_timezone", "lead_days", "burn_periods"),
     "windninja": ("enable", "command", "run_root", "threads", "options", "mesh_m"),
     "weather": ("enable", "wxs", "cache_dir", "threads", "elevation_tol_ft"),
-    "farsite": ("enable", "run", "command", "cwd", "barrier", "out_base",
+    "farsite": ("enable", "command", "cwd", "barrier", "out_base",
                 "outputs_type", "timestep", "distance_res", "perimeter_res",
                 "spot_grid_resolution", "spot_probability", "spot_ignition_delay",
                 "minimum_spot_distance", "acceleration_on", "fill_barriers",
@@ -790,6 +790,7 @@ class Runner:
         self.tz_name = None
         self._anchor = None
         self.wxs = None
+        self.out_base = None
 
     # ------------------------------------------------------------------ io --
     def run_cmd(self, stage, argv, *, cwd=None, native=False):
@@ -1157,6 +1158,12 @@ class Runner:
         return wxs
 
     # ------------------------------------------------------------ stage 9 ----
+    def _farsite_paths(self):
+        """The run dir's `-FarsiteInputs`/`-FarsiteCmd` path pair (both the
+        create and the read mode derive their files from the same slug)."""
+        return (self.run_dir / f"{self.slug}-FarsiteInputs.txt",
+                self.run_dir / f"{self.slug}-FarsiteCmd.txt")
+
     def stage_assemble(self):
         """FARSITE inputs file + command file."""
         self.stage("farsite-assemble")
@@ -1215,7 +1222,7 @@ class Runner:
             *rows,
             f"FARSITE_ATM_FILE: {self.atm_path.resolve() if not self.dry else self.atm_path}",
         ]
-        inputs_path = self.run_dir / f"{self.slug}-FarsiteInputs.txt"
+        inputs_path, cmd_path = self._farsite_paths()
         self.write_file(inputs_path, "\n".join(lines) + "\n", what="FARSITE inputs file")
         # command file: single line, all fields absolute
         out_base = respath(far["out_base"]) if far.get("out_base") \
@@ -1226,29 +1233,73 @@ class Runner:
             str(out_base.resolve()), str(far["outputs_type"])])
         if not self.dry:
             out_base.parent.mkdir(parents=True, exist_ok=True)
-        cmd_path = self.run_dir / f"{self.slug}-FarsiteCmd.txt"
         self.write_file(cmd_path, cmd_line + "\n", what="FARSITE command file")
         print(f"out base: {out_base.resolve()}")
         self.out_base = out_base
         return inputs_path, cmd_path
 
+    # ------------------------------------------------------- stage 9b ----
+    def stage_read(self):
+        """FARSITE read mode (enable=false): locate + verify the prior
+        -FarsiteInputs/-FarsiteCmd and hand them to runfarsite unchanged.
+
+        Nothing is created or touched; unlike the windy-create path this
+        fails loudly when the files to reuse are missing so a read of nothing
+        can't masquerade as a run."""
+        self.stage("farsite-read")
+        inputs_path, cmd_path = self._farsite_paths()
+        if self.dry:
+            print(f"[dry-run] read mode: would reuse {inputs_path.name} + "
+                  f"{cmd_path.name} without writing")
+            return inputs_path, cmd_path
+        if not cmd_path.is_file():
+            die(f"read mode ([farsite] enable=false): no existing FARSITE "
+                f"command file at {cmd_path}; run once with enable=true to "
+                "create it")
+        if not inputs_path.is_file():
+            die(f"read mode ([farsite] enable=false): no existing FARSITE "
+                f"inputs file at {inputs_path}; run once with enable=true to "
+                "create it")
+        try:
+            fields = shlex.split(cmd_path.read_text().strip())
+        except (OSError, ValueError):
+            fields = []
+        if len(fields) >= 2:
+            listed = respath(fields[1])
+            if not listed.is_file():
+                die(f"read mode: {cmd_path.name} references inputs "
+                    f"{listed}, which is missing ({listed})")
+        print(f"read mode: reusing {inputs_path.name} + {cmd_path.name} "
+              "(no assembly; existing files left unchanged)")
+        return inputs_path, cmd_path
+
     # ----------------------------------------------------------- stage 10 ---
     def stage_run(self, cmd_path):
-        """Invoke runfarsite when [farsite] run=true."""
+        """Invoke runfarsite when [farsite] command is set.
+
+        The inputs/cmd files come from stage_assemble (enable=true, created)
+        or stage_read (enable=false, existing); whether runfarsite actually
+        runs is decided here by command, like [windninja] command."""
         far = self.cfg["farsite"]
-        if not far["run"]:
-            print("\n[stage: farsite-run] farsite.run=false; runfarsite not "
-                  "invoked (assembly only)")
-            return
         command = str(far.get("command") or "").strip()
         if not command:
-            die("farsite.enable=true with farsite.run=true requires [farsite] "
-                "command (e.g. wine C:/.../runfarsite.exe)")
+            print("\n[stage: farsite-run] [farsite] command empty: runfarsite "
+                  "not invoked (write/read the files only - run the "
+                  "-FarsiteCmd.txt yourself, or set [farsite] command)")
+            return
         cwd = respath(far["cwd"]) if far.get("cwd") else REPO_ROOT
         self.run_cmd("farsite-run",
                      [*split_command(command), str(cmd_path)], cwd=cwd,
                      native=True)
-        print(f"farsite done; outputs base: {self.out_base.resolve()}")
+        base = self.out_base
+        if base is None:
+            try:                       # read mode: out base lives in the cmd file
+                fields = shlex.split(Path(cmd_path).read_text().strip())
+                if len(fields) >= 5:
+                    base = respath(fields[4])
+            except (OSError, ValueError):
+                pass
+        print(f"farsite done; outputs base: {base or cmd_path}")
 
     # ---------------------------------------------------- stage 4b ----
     def stage_ignition(self):
@@ -1346,13 +1397,10 @@ class Runner:
         self.stage_atm()
         self.stage_weather()
         if self.cfg["farsite"]["enable"]:
-            inputs_path, cmd_path = self.stage_assemble()
-            self.stage_run(cmd_path)
+            inputs_path, cmd_path = self.stage_assemble()   # create the files
         else:
-            self.stage("farsite")
-            print("farsite disabled (enable=false); inputs assembly and "
-                  "runfarsite skipped — prior -FarsiteInputs/-FarsiteCmd files "
-                  "are left untouched")
+            inputs_path, cmd_path = self.stage_read()       # reuse existing
+        self.stage_run(cmd_path)                            # command gates runfarsite
         print("\ndone")
 
 

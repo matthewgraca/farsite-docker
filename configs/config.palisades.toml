@@ -77,14 +77,14 @@ threads = 4                   # Phase-A download threads
 elevation_tol_ft = 500        # elevation-match tolerance when sampling the HRRR cell
 
 [farsite]
-enable = true                 # false => neither assembly nor runfarsite
-run = true		      # true => invoke runfarsite (needs [farsite] command);
-                              #   false => assemble the inputs + command files only
+enable = true                 # true => CREATE the -FarsiteInputs/-FarsiteCmd then run farsite;
+                              #   false => READ the existing files (untouched) then run farsite
 command = "C:\\Users\\mgraca\\Workspace\\farsite-docker\\FireBehaviorModels\\bin\\runfarsite.exe"                  
 			      # e.g. "wine C:/.../runfarsite.exe" (Linux/WSL) or native
                               #   Windows "C:\\...\\FireBehaviorModels\\bin\\runfarsite.exe";
                               #   a path with spaces must be double-quoted (quotes honored,
-                              #   backslashes literal). empty + run=true => error
+                              #   backslashes literal). empty => create/read the files only (run -FarsiteCmd.txt \
+                              #   yourself); set => also invoke runfarsite
 # cwd = null                  # CWD for runfarsite; default repo root (its DLL/PATH needs
                               #   FireBehaviorModels/bin; see docs/FARSITE-CLI.md)
 barrier = "0"                 # barrier shapefile path, or "0" for none

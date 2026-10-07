@@ -147,7 +147,7 @@ def test_orchestrate_plans_expanded_bbox_for_bbox_from(tmp_path):
         "windninja": {"enable": False,
                       "run_root": str(run / "windroot")},
         "weather": {"enable": False, "wxs": str(DATA / "palisades-hrrr.wxs")},
-        "farsite": {"enable": False, "run": False},
+        "farsite": {"enable": False},
     })
     with contextlib.redirect_stdout(io.StringIO()) as out:
         rc = main(["--config", str(cfg), "--dry-run"])
@@ -168,7 +168,7 @@ def test_bbox_and_bbox_from_are_mutually_exclusive(tmp_path, capsys):
         "windninja": {"enable": False,
                       "run_root": str(run / "windroot")},
         "weather": {"enable": False, "wxs": str(DATA / "palisades-hrrr.wxs")},
-        "farsite": {"enable": False, "run": False},
+        "farsite": {"enable": False},
     })
     with pytest.raises(SystemExit):
         main(["--config", str(cfg), "--dry-run"])

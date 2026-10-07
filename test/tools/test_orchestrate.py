@@ -86,7 +86,7 @@ def build_scratch_run(tmp_path, *, n_atm=1, grids=True):
 
 
 def offline_config(tmp_path, *, run_root, weather_wxs=DATA / "palisades-hrrr.wxs",
-                   farsite_run=False, farsite_enable=True, burn_periods=None,
+                   farsite_enable=True, burn_periods=None,
                    fuel_overrides=None):
     """The reusable offline base config; individual tests tweak the dict."""
     weather = {"enable": False, "threads": 8, "elevation_tol_ft": 500,
@@ -101,7 +101,7 @@ def offline_config(tmp_path, *, run_root, weather_wxs=DATA / "palisades-hrrr.wxs
                        "burn_periods": burn_periods or []},
         "windninja": {"enable": False, "run_root": str(run_root)},
         "weather": weather,
-        "farsite": {"enable": farsite_enable, "run": farsite_run,
+        "farsite": {"enable": farsite_enable,
                     "fuel_moistures": fuel_overrides or {}},
         "output": {"run_dir": str(tmp_path / "out")},
     }
@@ -177,24 +177,62 @@ def test_burn_period_utc_to_local_splits_across_local_midnight(tmp_path):
     assert "1 7 0000 0200" in text
 
 
-def test_farsite_disabled_skips_assembly_and_run(tmp_path):
-    """farsite.enable=false: assembly and runfarsite are skipped; upstream
-    reuse legs still run, and no -FarsiteInputs/-FarsiteCmd files are written
-    (the resumed hand-drive path keeps prior files untouched)."""
+def test_farsite_read_mode_requires_existing_files(tmp_path, capsys):
+    """enable=false means re-use the existing files, so with none present it
+    must fail loudly (a read of nothing cannot masquerade as a run)."""
     run_root = build_scratch_run(tmp_path)
-    cfg = write_config(tmp_path, "nofar.toml",
+    cfg = write_config(tmp_path, "noread.toml",
                        offline_config(tmp_path, run_root=run_root,
-                                      farsite_enable=False, farsite_run=True))
-    rc, out = run_main(["--config", str(cfg)])
+                                      farsite_enable=False))
+    with pytest.raises(SystemExit) as exc:
+        run_main(["--config", str(cfg)])
+    assert exc.value.code == 2
+    cap = capsys.readouterr()
+    assert "no existing FARSITE" in cap.err + cap.out
+
+
+def test_farsite_read_mode_preserves_and_runs_existing(monkeypatch, tmp_path):
+    """Two-phase: assemble once (enable=true), then enable=false reads the
+    SAME files byte-for-byte and (with command set) fires runfarsite on the
+    untouched command file."""
+    import orchestrate as o
+    run_root = build_scratch_run(tmp_path)
+    base = {
+        "landscape": {"enable": False, "lcp": str(DATA / "palisades.tif")},
+        "fire": {"enable": False, "fire_json": str(DATA / "fire.json")},
+        "simulation": {"start": "2025-01-06T08:00Z", "end": "2025-01-06T10:00Z",
+                       "row_timezone": "America/Los_Angeles", "lead_days": 0},
+        "windninja": {"enable": False, "run_root": str(run_root)},
+        "weather": {"enable": False, "wxs": str(DATA / "palisades-hrrr.wxs")},
+        "farsite": {"enable": True, "command": ""},
+        "output": {"run_dir": str(tmp_path / "out")},
+    }
+    rc, out = run_main(["--config", str(write_config(tmp_path, "mk.toml", base))])
     assert rc == 0
     out_dir = tmp_path / "out"
-    # upstream leg still ran (reused overrides are executed)
-    assert (out_dir / "palisades-dem.tif").is_file()
-    assert "atm verified: 2 rows, 4 grids OK" in out
-    # farsite leg skipped: no assembly, and run=true + empty command never dies
-    assert not (out_dir / "palisades-FarsiteInputs.txt").exists()
-    assert not (out_dir / "palisades-FarsiteCmd.txt").exists()
-    assert "farsite disabled" in out
+    inputs = out_dir / "palisades-FarsiteInputs.txt"
+    cmdfile = out_dir / "palisades-FarsiteCmd.txt"
+    assert inputs.is_file() and cmdfile.is_file()
+    cmdbefore = cmdfile.read_bytes()
+    cmd_line = cmdfile.read_text().strip()
+
+    # phase 2: read mode + command set -> invoke on the untouched file
+    calls = []
+    def fake_run(argv, cwd=None, env=None):
+        calls.append((argv, env))
+        return type("R", (), {"returncode": 0})()
+    monkeypatch.setattr(o.subprocess, "run", fake_run)
+    base = dict(base)
+    base["farsite"] = {"enable": False, "command": "wine C:/tools/runfarsite.exe"}
+    rc2, out2 = run_main(["--config", str(write_config(tmp_path, "read.toml", base))])
+    assert rc2 == 0
+    assert "read mode:" in out2
+    assert "runfarsite.exe" in " ".join(str(a) for a, _ in calls)
+    # the file handed to runfarsite is the SAME, unrewritten file
+    assert any(str(cmdfile) in str(a) or cmd_line in " ".join(str(x) for x in a)
+               for a, _ in calls)
+    assert cmdfile.read_bytes() == cmdbefore
+    assert inputs.read_bytes() == (out_dir / "palisades-FarsiteInputs.txt").read_bytes()
 
 
 def test_windninja_mesh_m_override_injects_mesh_resolution(tmp_path):
@@ -211,7 +249,7 @@ def test_windninja_mesh_m_override_injects_mesh_resolution(tmp_path):
                       "options": {"initialization_method": "wxModelInitialization",
                                   "wx_model_type": "PASTCAST-GCP-HRRR-CONUS-3-KM"}},
         "weather": {"enable": False, "wxs": str(DATA / "palisades-hrrr.wxs")},
-        "farsite": {"enable": False, "run": False},
+        "farsite": {"enable": False},
         "output": {"run_dir": str(tmp_path / "out")},
     }
     for label, mesh_m in (("coarse", 120.0), ("finer-than-lcp", 10.0)):
@@ -241,7 +279,7 @@ def test_example_config_dry_run_prints_plan_and_touches_nothing():
 
     rc, out = run_main(["--config",
                         str(Path(__file__).resolve().parent.parent.parent /
-                            "config.example.toml"), "--dry-run"])
+                            "configs/config.example.toml"), "--dry-run"])
     assert rc == 0
 
     # example LCP is 30 m -> injected mesh_resolution == 30
@@ -307,13 +345,57 @@ def test_missing_simulation_end_with_no_fire_cont_dies(tmp_path, capsys):
     assert "missing simulation end" in capsys.readouterr().err
 
 
-def test_farsite_run_requires_command_dies(tmp_path):
+def test_farsite_empty_command_is_assembly_only(monkeypatch, tmp_path):
+    """enable=true with an empty [farsite] command writes the inputs/cmd
+    files but never invokes runfarsite (hand-off mode - matches windninja)."""
+    import orchestrate as o
     run_root = build_scratch_run(tmp_path)
-    cfg = write_config(tmp_path, "norun.toml",
-                       offline_config(tmp_path, run_root=run_root,
-                                      farsite_run=True))
-    with pytest.raises(SystemExit):
-        main(["--config", str(cfg)])
+    cfg = write_config(tmp_path, "assemble.toml", {
+        "landscape": {"enable": False, "lcp": str(DATA / "palisades.tif")},
+        "fire": {"enable": False, "fire_json": str(DATA / "fire.json")},
+        "simulation": {"start": "2025-01-06T08:00Z", "end": "2025-01-06T10:00Z",
+                       "row_timezone": "America/Los_Angeles", "lead_days": 0},
+        "windninja": {"enable": False, "run_root": str(run_root)},
+        "weather": {"enable": False, "wxs": str(DATA / "palisades-hrrr.wxs")},
+        "farsite": {"enable": True, "command": ""},
+        "output": {"run_dir": str(tmp_path / "out")},
+    })
+    def boom(*a, **k):
+        raise AssertionError("runfarsite must not be spawned with command ''")
+    monkeypatch.setattr(o.subprocess, "run", boom)
+    rc, out = run_main(["--config", str(cfg)])
+    assert rc == 0
+    assert "command empty" in out
+    assert (tmp_path / "out" / "palisades-FarsiteInputs.txt").is_file()
+    assert (tmp_path / "out" / "palisades-FarsiteCmd.txt").is_file()
+
+
+def test_farsite_command_invokes_runfarsite(monkeypatch, tmp_path):
+    """enable=true with [farsite] command set assembles AND invokes
+    runfarsite with the repo-native data env (the old `run` flag is gone;
+    execution is driven by command alone)."""
+    import orchestrate as o
+    run_root = build_scratch_run(tmp_path)
+    cfg = write_config(tmp_path, "invoke.toml", {
+        "landscape": {"enable": False, "lcp": str(DATA / "palisades.tif")},
+        "fire": {"enable": False, "fire_json": str(DATA / "fire.json")},
+        "simulation": {"start": "2025-01-06T08:00Z", "end": "2025-01-06T10:00Z",
+                       "row_timezone": "America/Los_Angeles", "lead_days": 0},
+        "windninja": {"enable": False, "run_root": str(run_root)},
+        "weather": {"enable": False, "wxs": str(DATA / "palisades-hrrr.wxs")},
+        "farsite": {"enable": True,
+                    "command": "wine C:/tools/runfarsite.exe"},
+        "output": {"run_dir": str(tmp_path / "out")},
+    })
+    calls = []
+    def fake_run(argv, cwd=None, env=None):
+        calls.append((argv, env))
+        return type("R", (), {"returncode": 0})()
+    monkeypatch.setattr(o.subprocess, "run", fake_run)
+    rc, _ = run_main(["--config", str(cfg)])
+    assert rc == 0
+    assert any("runfarsite.exe" in str(argv) for argv, _ in calls)
+    assert (tmp_path / "out" / "palisades-FarsiteCmd.txt").is_file()
 
 
 def test_weather_disabled_without_wxs_dies(tmp_path, capsys):
@@ -325,7 +407,7 @@ def test_weather_disabled_without_wxs_dies(tmp_path, capsys):
                        "row_timezone": "America/Los_Angeles", "lead_days": 0},
         "windninja": {"enable": False, "run_root": str(run_root)},
         "weather": {"enable": False, "wxs": None},
-        "farsite": {"enable": True, "run": False},
+        "farsite": {"enable": True},
         "output": {"run_dir": str(tmp_path / "out")},
     })
     with pytest.raises(SystemExit):
@@ -399,7 +481,7 @@ def test_integration_live_hrrr_assembly(tmp_path):
         "windninja": {"enable": False, "run_root": str(run_root)},
         "weather": {"enable": True, "cache_dir": str(cached.parent),
                     "threads": 1, "elevation_tol_ft": 500, "wxs": None},
-        "farsite": {"enable": True, "run": False},
+        "farsite": {"enable": True},
         "output": {"run_dir": str(out_dir)},
     })
     rc, out = run_main(["--config", str(cfg)])
