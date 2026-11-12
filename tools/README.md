@@ -13,6 +13,10 @@ perimeter against the real one):
 | `orchestrate.py` | one TOML config | chained pipeline: landscape + ignition + WindNinja cfg + `.wxs` + FARSITE inputs/command files + `runfarsite` |
 | `compare_perimeter.py` | run-dir or reference+simulated shapefiles | IoU + overlay PNG (+future metrics) |
 
+`WildfireSurrogateModel/scripts/infer_real.py` reuses `calfire_ignition.py`,
+`ingest_landscape.py`, `runroot_to_atm.py` (frame scanning), and the native
+WindNinja CLI to drive the WildfireSurrogateModel surrogate on a real fire.
+
 Run all from the **repo root** (`python tools/<script.py> ...`). Any
 relative path defaults or flags resolve against the run CWD; the scripts'
 `--out` defaults are therefore already prefixed with `FireBehaviorModels/`
